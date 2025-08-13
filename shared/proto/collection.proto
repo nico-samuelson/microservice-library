@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package shared;
+
+option go_package = "./buffer";
+
+import "google/protobuf/struct.proto";
+
+service CollectionService {
+    rpc GetCollection(GetCollectionRequest) returns (Response);
+    rpc FindCollectionById(FindCollectionRequest) returns (Response);
+    rpc AddCollection(AddCollectionRequest) returns (Response);
+    rpc UpdateCollection(UpdateCollectionRequest) returns (Response);
+    rpc DeleteCollection(DeleteCollectionRequest) returns (Response);
+    rpc DecrementAvailableBooks(DecrementAvailableBooksRequest) returns (Response);
+}
+
+message Collection {
+    string id = 1;
+    string name = 2;
+    string author = 3;
+    repeated string categories = 4;
+    int32 total_books = 5;
+    int32 available_books = 6;
+    string created_at = 7;
+    string updated_at = 8;
+}
+
+message Response {
+    repeated Collection collection = 1;
+    string message = 2;
+    bool success = 3;
+}
+
+// Get Collection messages
+message GetCollectionRequest {
+    optional string name = 2;
+    optional string author = 3;
+    repeated string categories = 4;
+    optional int32 total_books = 5;
+    optional int32 available_books = 6;
+}
+
+// Find Collection messages
+message FindCollectionRequest {
+    string id = 1;
+}
+
+// Add Collection messages
+message AddCollectionRequest {
+    Collection collection = 1;
+}
+
+// Update Collection messages
+message UpdateCollectionRequest {
+    string id = 1;
+    google.protobuf.Struct payload = 2;
+}
+
+// Delete Collection messages
+message DeleteCollectionRequest {
+    string id = 1;
+}
+
+message DecrementAvailableBooksRequest {
+    string id = 1;
+    int32 amount = 2;
+}

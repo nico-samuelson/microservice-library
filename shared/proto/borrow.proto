@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package shared;
+
+option go_package = "./buffer";
+
+service BorrowService {
+    rpc BorrowBook(BorrowRequest) returns (BorrowServiceResponse);
+    rpc ReturnBook(ReturnRequest) returns (BorrowServiceResponse);
+}
+
+message Borrow {
+    string id = 1;
+    string book_id = 2;
+    string user_id = 3;
+    string collection_id = 4;
+    string borrow_date = 5;
+    string due_date = 6;
+    string return_date = 7;
+    string created_at = 8;
+    string updated_at = 9;
+}
+
+message BorrowRequest {
+    string collection_id = 1;
+    string user_id = 2;
+}
+
+message ReturnRequest {
+    string borrow_id = 1;
+}
+
+message BorrowServiceResponse {
+    repeated Borrow borrow = 1;
+    string message = 2;
+    bool success = 3;
+}

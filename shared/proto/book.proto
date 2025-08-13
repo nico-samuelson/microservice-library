@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package shared;
+
+option go_package = "./buffer";
+
+import "google/protobuf/wrappers.proto";
+import "google/protobuf/struct.proto";
+
+service BookService {
+    rpc GetBook(GetBookRequest) returns (BookResponse);
+    rpc FindBookById(FindBookRequest) returns (BookResponse);
+    rpc AddBook(AddBookRequest) returns (BookResponse);
+    rpc UpdateBook(UpdateBookRequest) returns (BookResponse);
+    rpc DeleteBook(DeleteBookRequest) returns (BookResponse);
+    rpc GetAvailableBook(GetAvailableBookRequest) returns (BookResponse);
+}
+
+message Book {
+    string id = 1;
+    string collection_id = 2;
+    google.protobuf.BoolValue is_borrowed = 3;
+    string created_at = 4;
+    string updated_at = 5;
+}
+
+message BookResponse {
+    repeated Book book = 1;
+    string message = 2;
+    bool success = 3;
+}
+
+// Get Book messages
+message GetBookRequest {
+    optional string id = 1;
+    optional string collection_id = 2;
+    optional string is_borrowed = 3;
+}
+
+// Find Book messages
+message FindBookRequest {
+    string id = 1;
+}
+
+// Add Book messages
+message AddBookRequest {
+    Book book = 1;
+}
+
+// Update Book messages
+message UpdateBookRequest {
+    string id = 1;
+    google.protobuf.Struct payload = 2;
+}
+
+// Delete Book messages
+message DeleteBookRequest {
+    string id = 1;
+}
+
+message GetAvailableBookRequest {
+    string collection_id = 1;
+}
