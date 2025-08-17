@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"shared/pkg/model"
 	pb "shared/proto/buffer"
 
 	"github.com/gin-gonic/gin"
@@ -31,8 +30,7 @@ func (h *BorrowHandler) BorrowBook(c *gin.Context) {
 		return
 	}
 
-	borrows := model.FromPbBorrows(response.Borrow)
-	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{borrows}))
+	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{map[string]interface{}{"id": response.Id, "book_id": response.BookId}}))
 }
 
 func (h *BorrowHandler) ReturnBook(c *gin.Context) {
@@ -48,5 +46,5 @@ func (h *BorrowHandler) ReturnBook(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{model.FromPbBorrows(response.Borrow)}))
+	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{map[string]interface{}{"id": response.Id, "book_id": response.BookId}}))
 }

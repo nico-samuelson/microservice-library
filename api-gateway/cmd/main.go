@@ -54,7 +54,7 @@ func main() {
 	defer closeConnections(connections)
 
 	// Setup Gin routes
-	router := routes.SetupRoutes(connections)
+	router := routes.SetupRoutes(connections, routes.DefaultBatchingConfig())
 
 	// Start server in a goroutine
 	srv := &http.Server{

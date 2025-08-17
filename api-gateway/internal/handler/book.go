@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"context"
 	"log"
 	"shared/pkg/model"
 	pb "shared/proto/buffer"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -11,12 +14,54 @@ import (
 )
 
 type BookHandler struct {
-	client pb.BookServiceClient
+	client  pb.BookServiceClient
+	batcher *BookReqBatcher
 }
 
 func NewBookHandler(conn *grpc.ClientConn) *BookHandler {
 	return &BookHandler{
 		client: pb.NewBookServiceClient(conn),
+	}
+}
+
+func NewBookHandlerWithBatching(conn *grpc.ClientConn, batchWindow time.Duration) *BookHandler {
+	client := pb.NewBookServiceClient(conn)
+	return &BookHandler{
+		client:  client,
+		batcher: NewBookReqBatcher(client, batchWindow),
+	}
+}
+
+// GrpcBatcher handles batching for gRPC calls
+type BookReqBatcher struct {
+	client      pb.BookServiceClient
+	batchWindow time.Duration
+	mu          sync.Mutex
+	pending     []*BookBatchRequest
+	timer       *time.Timer
+}
+
+type BookBatchRequest struct {
+	ctx  context.Context
+	resp chan *pb.BookResponse
+	err  chan error
+}
+
+func NewBookReqBatcher(client pb.BookServiceClient, batchWindow time.Duration) *BookReqBatcher {
+	return &BookReqBatcher{
+		client:      client,
+		batchWindow: batchWindow,
+		pending:     []*BookBatchRequest{},
+	}
+}
+
+// BatchingMiddleware returns middleware function for this handler
+func (h *BookHandler) BatchingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.batcher != nil {
+			c.Set("book_batcher", h.batcher)
+		}
+		c.Next()
 	}
 }
 
@@ -30,6 +75,62 @@ func (h *BookHandler) GetBook(c *gin.Context) {
 
 	books := model.FromPbBooks(response.Book)
 	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{books}))
+}
+
+func (h *BookHandler) GetBookBatch(c *gin.Context) {
+	if h.batcher != nil {
+		// Use batcher for multiple requests
+		response, err := h.batcher.GetBooksBatch(c.Request.Context(), &pb.GetBookRequest{})
+		if err != nil {
+			message := ExtractErrorMessage(err)
+			c.JSON(500, BuildHttpResponse(false, 500, message, []interface{}{}))
+			return
+		}
+		c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{model.FromPbBooks(response.Book)}))
+	} else {
+		h.GetBook(c)
+	}
+}
+
+func (b *BookReqBatcher) GetBooksBatch(ctx context.Context, request *pb.GetBookRequest) (*pb.BookResponse, error) {
+	req := &BookBatchRequest{
+		ctx:  ctx,
+		resp: make(chan *pb.BookResponse, 1),
+		err:  make(chan error, 1),
+	}
+
+	b.mu.Lock()
+	b.pending = append(b.pending, req)
+	if b.timer == nil {
+		b.timer = time.AfterFunc(b.batchWindow, b.flush)
+	}
+	b.mu.Unlock()
+
+	select {
+	case r := <-req.resp:
+		return r, nil
+	case e := <-req.err:
+		return nil, e
+	}
+}
+
+func (b *BookReqBatcher) flush() {
+	b.mu.Lock()
+	pending := b.pending
+	b.pending = nil
+	b.timer = nil
+	b.mu.Unlock()
+
+	// Make a single backend call for all pending requests
+	resp, err := b.client.GetBook(context.Background(), &pb.GetBookRequest{})
+	for _, req := range pending {
+		log.Printf("Flushing batch with %d requests", len(pending))
+		if err != nil {
+			req.err <- err
+		} else {
+			req.resp <- resp
+		}
+	}
 }
 
 func (h *BookHandler) GetBookById(c *gin.Context) {

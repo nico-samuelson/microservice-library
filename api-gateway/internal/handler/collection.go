@@ -1,17 +1,22 @@
 package handler
 
 import (
+	"context"
 	"log"
 	"shared/pkg/model"
 	pb "shared/proto/buffer"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// CollectionHandler with batching support
 type CollectionHandler struct {
-	client pb.CollectionServiceClient
+	client  pb.CollectionServiceClient
+	batcher *CollectionReqBatcher
 }
 
 func NewCollectionHandler(conn *grpc.ClientConn) *CollectionHandler {
@@ -20,6 +25,49 @@ func NewCollectionHandler(conn *grpc.ClientConn) *CollectionHandler {
 	}
 }
 
+func NewCollectionHandlerWithBatching(conn *grpc.ClientConn, batchWindow time.Duration) *CollectionHandler {
+	client := pb.NewCollectionServiceClient(conn)
+	return &CollectionHandler{
+		client:  client,
+		batcher: NewGrpcBatcher(client, batchWindow),
+	}
+}
+
+// GrpcBatcher handles batching for gRPC calls
+type CollectionReqBatcher struct {
+	client      pb.CollectionServiceClient
+	batchWindow time.Duration
+	mu          sync.Mutex
+	pending     []*CollectionBatchRequest
+	timer       *time.Timer
+}
+
+type CollectionBatchRequest struct {
+	ctx  context.Context
+	resp chan *pb.Response
+	err  chan error
+}
+
+// NewGrpcBatcher creates a new gRPC batcher
+func NewGrpcBatcher(client pb.CollectionServiceClient, batchWindow time.Duration) *CollectionReqBatcher {
+	return &CollectionReqBatcher{
+		client:      client,
+		batchWindow: batchWindow,
+		pending:     []*CollectionBatchRequest{},
+	}
+}
+
+// BatchingMiddleware returns middleware function for this handler
+func (h *CollectionHandler) BatchingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.batcher != nil {
+			c.Set("collection_batcher", h.batcher)
+		}
+		c.Next()
+	}
+}
+
+// GetCollection gets all collections with pagination and caching
 func (h *CollectionHandler) GetCollection(c *gin.Context) {
 	request := pb.GetCollectionRequest{}
 	response, err := h.client.GetCollection(c, &request)
@@ -30,6 +78,61 @@ func (h *CollectionHandler) GetCollection(c *gin.Context) {
 		return
 	}
 	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{response.Collection}))
+}
+
+func (h *CollectionHandler) GetCollectionBatch(c *gin.Context) {
+	if h.batcher != nil {
+		// Use batcher for multiple requests
+		response, err := h.batcher.GetCollectionsBatch(c.Request.Context())
+		if err != nil {
+			message := ExtractErrorMessage(err)
+			c.JSON(500, BuildHttpResponse(false, 500, message, []interface{}{}))
+			return
+		}
+		c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{model.FromPbCollections(response.Collection)}))
+	} else {
+		h.GetCollection(c)
+	}
+}
+
+func (b *CollectionReqBatcher) GetCollectionsBatch(ctx context.Context) (*pb.Response, error) {
+	req := &CollectionBatchRequest{
+		ctx:  ctx,
+		resp: make(chan *pb.Response, 1),
+		err:  make(chan error, 1),
+	}
+
+	b.mu.Lock()
+	b.pending = append(b.pending, req)
+	if b.timer == nil {
+		b.timer = time.AfterFunc(b.batchWindow, b.flush)
+	}
+	b.mu.Unlock()
+
+	select {
+	case r := <-req.resp:
+		return r, nil
+	case e := <-req.err:
+		return nil, e
+	}
+}
+
+func (b *CollectionReqBatcher) flush() {
+	b.mu.Lock()
+	pending := b.pending
+	b.pending = nil
+	b.timer = nil
+	b.mu.Unlock()
+
+	// Make a single backend call for all pending requests
+	resp, err := b.client.GetCollection(context.Background(), &pb.GetCollectionRequest{})
+	for _, req := range pending {
+		if err != nil {
+			req.err <- err
+		} else {
+			req.resp <- resp
+		}
+	}
 }
 
 func (h *CollectionHandler) GetCollectionById(c *gin.Context) {
