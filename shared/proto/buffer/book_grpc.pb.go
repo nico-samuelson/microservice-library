@@ -25,6 +25,8 @@ const (
 	BookService_UpdateBook_FullMethodName       = "/shared.BookService/UpdateBook"
 	BookService_DeleteBook_FullMethodName       = "/shared.BookService/DeleteBook"
 	BookService_GetAvailableBook_FullMethodName = "/shared.BookService/GetAvailableBook"
+	BookService_CountBook_FullMethodName        = "/shared.BookService/CountBook"
+	BookService_BulkInsert_FullMethodName       = "/shared.BookService/BulkInsert"
 )
 
 // BookServiceClient is the client API for BookService service.
@@ -37,6 +39,8 @@ type BookServiceClient interface {
 	UpdateBook(ctx context.Context, in *UpdateBookRequest, opts ...grpc.CallOption) (*BookResponse, error)
 	DeleteBook(ctx context.Context, in *DeleteBookRequest, opts ...grpc.CallOption) (*BookResponse, error)
 	GetAvailableBook(ctx context.Context, in *GetAvailableBookRequest, opts ...grpc.CallOption) (*BookResponse, error)
+	CountBook(ctx context.Context, in *CountBookRequest, opts ...grpc.CallOption) (*BookCountResponse, error)
+	BulkInsert(ctx context.Context, in *BulkInsertBookRequest, opts ...grpc.CallOption) (*BookResponse, error)
 }
 
 type bookServiceClient struct {
@@ -107,6 +111,26 @@ func (c *bookServiceClient) GetAvailableBook(ctx context.Context, in *GetAvailab
 	return out, nil
 }
 
+func (c *bookServiceClient) CountBook(ctx context.Context, in *CountBookRequest, opts ...grpc.CallOption) (*BookCountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BookCountResponse)
+	err := c.cc.Invoke(ctx, BookService_CountBook_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bookServiceClient) BulkInsert(ctx context.Context, in *BulkInsertBookRequest, opts ...grpc.CallOption) (*BookResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BookResponse)
+	err := c.cc.Invoke(ctx, BookService_BulkInsert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BookServiceServer is the server API for BookService service.
 // All implementations must embed UnimplementedBookServiceServer
 // for forward compatibility.
@@ -117,6 +141,8 @@ type BookServiceServer interface {
 	UpdateBook(context.Context, *UpdateBookRequest) (*BookResponse, error)
 	DeleteBook(context.Context, *DeleteBookRequest) (*BookResponse, error)
 	GetAvailableBook(context.Context, *GetAvailableBookRequest) (*BookResponse, error)
+	CountBook(context.Context, *CountBookRequest) (*BookCountResponse, error)
+	BulkInsert(context.Context, *BulkInsertBookRequest) (*BookResponse, error)
 	mustEmbedUnimplementedBookServiceServer()
 }
 
@@ -144,6 +170,12 @@ func (UnimplementedBookServiceServer) DeleteBook(context.Context, *DeleteBookReq
 }
 func (UnimplementedBookServiceServer) GetAvailableBook(context.Context, *GetAvailableBookRequest) (*BookResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAvailableBook not implemented")
+}
+func (UnimplementedBookServiceServer) CountBook(context.Context, *CountBookRequest) (*BookCountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CountBook not implemented")
+}
+func (UnimplementedBookServiceServer) BulkInsert(context.Context, *BulkInsertBookRequest) (*BookResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BulkInsert not implemented")
 }
 func (UnimplementedBookServiceServer) mustEmbedUnimplementedBookServiceServer() {}
 func (UnimplementedBookServiceServer) testEmbeddedByValue()                     {}
@@ -274,6 +306,42 @@ func _BookService_GetAvailableBook_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BookService_CountBook_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CountBookRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BookServiceServer).CountBook(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BookService_CountBook_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BookServiceServer).CountBook(ctx, req.(*CountBookRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BookService_BulkInsert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BulkInsertBookRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BookServiceServer).BulkInsert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BookService_BulkInsert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BookServiceServer).BulkInsert(ctx, req.(*BulkInsertBookRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BookService_ServiceDesc is the grpc.ServiceDesc for BookService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -304,6 +372,14 @@ var BookService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAvailableBook",
 			Handler:    _BookService_GetAvailableBook_Handler,
+		},
+		{
+			MethodName: "CountBook",
+			Handler:    _BookService_CountBook_Handler,
+		},
+		{
+			MethodName: "BulkInsert",
+			Handler:    _BookService_BulkInsert_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

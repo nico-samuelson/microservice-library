@@ -31,7 +31,8 @@ message ReturnRequest {
 }
 
 message BorrowServiceResponse {
-    repeated Borrow borrow = 1;
-    string message = 2;
-    bool success = 3;
+    string id = 1;
+    string book_id = 2;
+    string message = 3;
+    bool success = 4;
 }

@@ -12,7 +12,7 @@ import (
 type Book struct {
 	Id           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	CollectionId primitive.ObjectID `bson:"collection_id" json:"collection_id" validate:"required"`
-	IsBorrowed   bool               `bson:"is_borrowed" json:"is_borrowed" validate:"required"`
+	IsBorrowed   bool               `bson:"is_borrowed" json:"is_borrowed" validate:"boolean"`
 	CreatedAt    time.Time          `bson:"created_at" json:"created_at" validate:"required"`
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at" validate:"required"`
 }
@@ -52,15 +52,17 @@ func FromPbBook(p *pb.Book) *Book {
 		return nil
 	}
 
+	// log.Println(p.Id)
+
 	objId, err := primitive.ObjectIDFromHex(p.Id)
 	if err != nil {
-		log.Printf("Failed to convert ID from hex: %v", err)
+		log.Printf("Failed to convert book ID from hex: %v", p.Id)
 		return nil
 	}
 
 	collectionId, err := primitive.ObjectIDFromHex(p.CollectionId)
 	if err != nil {
-		log.Printf("Failed to convert ID from hex: %v", err)
+		log.Printf("Failed to convert collection ID from hex: %v", p.CollectionId)
 		return nil
 	}
 

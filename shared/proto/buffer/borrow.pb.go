@@ -227,9 +227,10 @@ func (x *ReturnRequest) GetBorrowId() string {
 
 type BorrowServiceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Borrow        []*Borrow              `protobuf:"bytes,1,rep,name=borrow,proto3" json:"borrow,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	Success       bool                   `protobuf:"varint,3,opt,name=success,proto3" json:"success,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	BookId        string                 `protobuf:"bytes,2,opt,name=book_id,json=bookId,proto3" json:"book_id,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Success       bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -264,11 +265,18 @@ func (*BorrowServiceResponse) Descriptor() ([]byte, []int) {
 	return file_borrow_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *BorrowServiceResponse) GetBorrow() []*Borrow {
+func (x *BorrowServiceResponse) GetId() string {
 	if x != nil {
-		return x.Borrow
+		return x.Id
 	}
-	return nil
+	return ""
+}
+
+func (x *BorrowServiceResponse) GetBookId() string {
+	if x != nil {
+		return x.BookId
+	}
+	return ""
 }
 
 func (x *BorrowServiceResponse) GetMessage() string {
@@ -308,11 +316,12 @@ const file_borrow_proto_rawDesc = "" +
 	"\rcollection_id\x18\x01 \x01(\tR\fcollectionId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\",\n" +
 	"\rReturnRequest\x12\x1b\n" +
-	"\tborrow_id\x18\x01 \x01(\tR\bborrowId\"s\n" +
-	"\x15BorrowServiceResponse\x12&\n" +
-	"\x06borrow\x18\x01 \x03(\v2\x0e.shared.BorrowR\x06borrow\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\x12\x18\n" +
-	"\asuccess\x18\x03 \x01(\bR\asuccess2\x97\x01\n" +
+	"\tborrow_id\x18\x01 \x01(\tR\bborrowId\"t\n" +
+	"\x15BorrowServiceResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\abook_id\x18\x02 \x01(\tR\x06bookId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x18\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess2\x97\x01\n" +
 	"\rBorrowService\x12B\n" +
 	"\n" +
 	"BorrowBook\x12\x15.shared.BorrowRequest\x1a\x1d.shared.BorrowServiceResponse\x12B\n" +
@@ -340,16 +349,15 @@ var file_borrow_proto_goTypes = []any{
 	(*BorrowServiceResponse)(nil), // 3: shared.BorrowServiceResponse
 }
 var file_borrow_proto_depIdxs = []int32{
-	0, // 0: shared.BorrowServiceResponse.borrow:type_name -> shared.Borrow
-	1, // 1: shared.BorrowService.BorrowBook:input_type -> shared.BorrowRequest
-	2, // 2: shared.BorrowService.ReturnBook:input_type -> shared.ReturnRequest
-	3, // 3: shared.BorrowService.BorrowBook:output_type -> shared.BorrowServiceResponse
-	3, // 4: shared.BorrowService.ReturnBook:output_type -> shared.BorrowServiceResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 0: shared.BorrowService.BorrowBook:input_type -> shared.BorrowRequest
+	2, // 1: shared.BorrowService.ReturnBook:input_type -> shared.ReturnRequest
+	3, // 2: shared.BorrowService.BorrowBook:output_type -> shared.BorrowServiceResponse
+	3, // 3: shared.BorrowService.ReturnBook:output_type -> shared.BorrowServiceResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_borrow_proto_init() }
