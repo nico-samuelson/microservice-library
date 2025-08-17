@@ -2,31 +2,40 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
 	"shared/pkg/model"
 	"shared/pkg/service"
+	"shared/pkg/utils"
 	pb "shared/proto/buffer"
 
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type CollectionServiceServer struct {
 	pb.UnimplementedCollectionServiceServer
 	service    *service.BaseService[model.Collection, model.CollectionUpdateRequest]
 	repository *CollectionRepository
+	cache      *redis.Client
+	bookClient pb.BookServiceClient
 }
 
-func NewCollectionService(database *mongo.Database, collection_name string) *CollectionServiceServer {
+func NewCollectionService(database *mongo.Database, collection_name string, connections map[string]*grpc.ClientConn, cache *redis.Client) *CollectionServiceServer {
 	repository := NewCollectionRepository(database, collection_name)
 	return &CollectionServiceServer{
 		service:    service.NewBaseService[model.Collection, model.CollectionUpdateRequest](&repository.Repository),
 		repository: repository,
+		cache:      cache,
+		bookClient: pb.NewBookServiceClient(connections["book"]),
 	}
 }
 
@@ -42,17 +51,34 @@ func (s *CollectionServiceServer) GetCollection(ctx context.Context, in *pb.GetC
 }
 
 func (s *CollectionServiceServer) FindCollectionById(ctx context.Context, in *pb.FindCollectionRequest) (*pb.Response, error) {
-	data, err := s.service.Find(ctx, bson.M{"_id": in.Id})
+	collection, success := s.getCachedCollection(ctx, in.Id)
 
-	if err == mongo.ErrNoDocuments {
-		return s.buildResponse(false, "Collection not found", nil), nil
-	}
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	if !success {
+		data, err := s.service.Find(ctx, bson.M{"_id": in.Id})
+
+		if err == mongo.ErrNoDocuments {
+			return s.buildResponse(false, "Collection not found", nil), nil
+		}
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		collection = data
+
+		// Set cache
+		bytes, err := json.Marshal(collection)
+		if err != nil {
+			log.Printf("Error packing JSON: %s", err)
+		} else {
+			err = s.cache.Set(ctx, "collection:"+in.Id, bytes, time.Hour).Err()
+			if err != nil {
+				log.Printf("Error setting cache: %v", err)
+			}
+		}
 	}
 
-	newCollection := model.ToPbCollection(data)
-	return s.buildResponse(true, "Collection found", []*pb.Collection{newCollection}), nil
+	pbCollection := model.ToPbCollection(collection)
+	return s.buildResponse(true, "Collection found", []*pb.Collection{pbCollection}), nil
 }
 
 func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddCollectionRequest) (*pb.Response, error) {
@@ -74,6 +100,40 @@ func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddC
 	err = s.service.Create(ctx, *collection)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	if in.Collection.TotalBooks > 0 {
+		backgroundCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		go func() {
+			defer cancel()
+
+			var books []*pb.Book
+			for range collection.TotalBooks {
+				book := pb.Book{
+					Id:           primitive.NewObjectID().Hex(),
+					CollectionId: collection.Id.Hex(),
+					IsBorrowed:   &wrapperspb.BoolValue{Value: false},
+					CreatedAt:    time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
+					UpdatedAt:    time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
+				}
+				books = append(books, &book)
+			}
+			
+			retries := 0
+			for retries < 3 {
+				if _, err := s.bookClient.BulkInsert(backgroundCtx, &pb.BulkInsertBookRequest{
+					Books: books,
+				}); err != nil {
+					// Log error but don't fail the main operation
+					log.Printf("Failed to bulk insert books for collection %s: %v", collection.Id, err)
+
+					// Optional: implement retry logic or send to dead letter queue
+					retries += 1
+				} else {
+					break
+				}
+			}
+		}()
 	}
 
 	return s.buildResponse(true, "Collection added!", []*pb.Collection{in.Collection}), nil
@@ -110,13 +170,13 @@ func (s *CollectionServiceServer) UpdateCollection(ctx context.Context, in *pb.U
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	s.invalidateCache(ctx, in.Id)
 
 	dataPb := model.ToPbCollection(&data)
 	if dataPb == nil {
 		return nil, status.Error(codes.Internal, "Failed to convert collection to protobuf")
 	}
 	return s.buildResponse(true, "Collection updated!", []*pb.Collection{dataPb}), nil
-
 }
 
 func (s *CollectionServiceServer) DeleteCollection(ctx context.Context, in *pb.DeleteCollectionRequest) (*pb.Response, error) {
@@ -127,13 +187,14 @@ func (s *CollectionServiceServer) DeleteCollection(ctx context.Context, in *pb.D
 		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	s.invalidateCache(ctx, in.Id)
+
 	newCollection := model.ToPbCollection(&data)
 	return s.buildResponse(true, "Collection deleted!", []*pb.Collection{newCollection}), nil
 }
 
 func (s *CollectionServiceServer) DecrementAvailableBooks(ctx context.Context, in *pb.DecrementAvailableBooksRequest) (*pb.Response, error) {
-	log.Println(in)
-	result, err := s.repository.UpdateBookStock(ctx, map[string]interface{}{"available_books": in.Amount}, in.Id)
+	result, err := s.repository.UpdateBookStock(ctx, map[string]interface{}{"total_books": in.Amount}, in.Id)
 
 	if err != nil {
 		return s.buildResponse(false, err.Error(), []*pb.Collection{}), err
@@ -142,7 +203,45 @@ func (s *CollectionServiceServer) DecrementAvailableBooks(ctx context.Context, i
 		return s.buildResponse(false, "No book updated", []*pb.Collection{}), err
 	}
 
+	// Update cache
+	cachedCollection, success := s.getCachedCollection(ctx, in.Id)
+	if !success {
+		log.Printf("Error getting cache")
+	} else {
+		cachedCollection.AvailableBooks -= int(in.Amount)
+
+		bytes, err := json.Marshal(cachedCollection)
+		if err != nil {
+			log.Printf("Error packing JSON: %s", err)
+			s.cache.Del(ctx, "collection:"+in.Id)
+		}
+
+		err = s.cache.Set(ctx, "collection:"+in.Id, bytes, time.Hour).Err()
+		if err != nil {
+			log.Printf("Error updating cache: %s", err)
+			s.cache.Del(ctx, "collection:"+in.Id)
+		}
+	}
+
 	return s.buildResponse(true, "Stock updated successfully!", []*pb.Collection{}), nil
+}
+
+func (s *CollectionServiceServer) getCachedCollection(ctx context.Context, id string) (*model.Collection, bool) {
+	collection, success := utils.GetCachedData[model.Collection](ctx, s.cache, "collection:"+id)
+
+	if !success {
+		return nil, false
+	}
+
+	return collection, true
+}
+
+func (s *CollectionServiceServer) invalidateCache(ctx context.Context, id string) {
+	// Invalidate cache
+	err := s.cache.Del(ctx, "collection:"+id).Err()
+	if err != nil {
+		log.Printf("Error deleting cache: %v", err)
+	}
 }
 
 func (s *CollectionServiceServer) buildResponse(success bool, message string, collections []*pb.Collection) *pb.Response {
