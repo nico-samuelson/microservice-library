@@ -9,113 +9,122 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type BorrowServiceServer struct {
 	pb.UnimplementedBorrowServiceServer
 	service          *service.BaseService[model.Borrow, model.BorrowUpdateRequest]
+	cache            *redis.Client
 	collectionClient pb.CollectionServiceClient
 	bookClient       pb.BookServiceClient
 }
 
-func NewBorrowService(database *mongo.Database, collection_name string, connections map[string]*grpc.ClientConn) *BorrowServiceServer {
+func NewBorrowService(database *mongo.Database, collection_name string, connections map[string]*grpc.ClientConn, redis *redis.Client) *BorrowServiceServer {
 	repository := NewBorrowRepository(database, collection_name)
 	return &BorrowServiceServer{
 		service:          service.NewBaseService[model.Borrow, model.BorrowUpdateRequest](&repository.Repository),
+		cache:            redis,
 		collectionClient: pb.NewCollectionServiceClient(connections["collection"]),
 		bookClient:       pb.NewBookServiceClient(connections["book"]),
 	}
 }
 
 func (s *BorrowServiceServer) BorrowBook(ctx context.Context, in *pb.BorrowRequest) (*pb.BorrowServiceResponse, error) {
-	var wg sync.WaitGroup
-	var bookErr, collectionErr error
-	var collection *model.Collection
-	var book *model.Book
-
-	wg.Add(2)
-
-	// Fetch collection and book info concurrently
-	go func() {
-		defer wg.Done()
-
-		collection_resp, err := s.getCollection(ctx, in.CollectionId)
-		if err != nil {
-			collectionErr = err
-		} else {
-			if collection_resp.AvailableBooks < 1 {
-				collectionErr = status.Error(codes.NotFound, "No available books in this collection")
-			} else {
-				collection = collection_resp
-			}
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		book_resp, err := s.getOrCreateBook(ctx, in.CollectionId)
-		if err != nil {
-			bookErr = err
-		} else {
-			book = book_resp
-		}
-	}()
-
-	wg.Wait()
-
-	// Check for any error
-	if collectionErr != nil {
-		return nil, status.Error(status.Code(collectionErr), collectionErr.Error())
-	}
-	if bookErr != nil && status.Code(bookErr) != codes.NotFound {
-		return nil, status.Error(status.Code(bookErr), bookErr.Error())
-	}
-
-	// Create borrow record with compensation pattern
-	borrow, err := s.createBorrowWithCompensation(ctx, book, collection)
+	// Fetch book and collection info
+	book, err := s.fetchBookAndCollection(ctx, in.CollectionId)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.buildResponse(true, "Book borrowed!", []*pb.Borrow{model.ToPbBorrow(borrow)}), nil
+	// Create borrow record with compensation pattern
+	borrow, err := s.createBorrowWithCompensation(ctx, book, in.CollectionId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache
+	s.updateCache(ctx, book.Id.Hex(), in.CollectionId, "remove")
+
+	return s.buildResponse(true, "Book borrowed!", borrow.Id.Hex(), borrow.BookId.Hex()), nil
 }
 
 func (s *BorrowServiceServer) ReturnBook(ctx context.Context, in *pb.ReturnRequest) (*pb.BorrowServiceResponse, error) {
 	now := time.Now().UTC()
+
+	// Check if book already returned
+	borrow_record, err := s.service.FindById(ctx, in.BorrowId)
+	if err == mongo.ErrNoDocuments {
+		log.Printf("error checking book status when returning: %v", err)
+		return nil, status.Error(codes.NotFound, "Borrow record not found")
+	} else if borrow_record.ReturnDate != nil && !borrow_record.ReturnDate.IsZero() {
+		log.Printf("book already returned: %v", borrow_record)
+		return nil, status.Error(codes.FailedPrecondition, "Book already returned")
+	}
+
+	if err := s.markBookBorrowedStatus(ctx, borrow_record.BookId.Hex(), false, now); err != nil {
+		return nil, status.Errorf(codes.Aborted, "failed to mark book as returned: %v", err)
+	}
+
+	// Update borrow record
 	borrow, err := s.service.Update(ctx, map[string]interface{}{
 		"return_date": now.Format("2006-01-02T15:04:05.000000Z"),
 		"updated_at":  now.Format("2006-01-02T15:04:05.000000Z"),
 	}, in.BorrowId)
 
 	if err != nil {
+		s.markBookBorrowedStatus(ctx, borrow.BookId.Hex(), true, now)
 		return nil, status.Errorf(codes.Internal, "failed to update borrow record: %v", err)
 	}
 
-	// Update Book
-	if err := s.markBookBorrowedStatus(ctx, borrow.BookId.Hex(), false, now); err != nil {
-		s.compensateBook(ctx, borrow.BookId.Hex(), false, true, true, now)
-		return nil, status.Errorf(codes.Aborted, "failed to mark book as returned: %v", err)
+	// Update cache
+	s.updateCache(ctx, borrow.BookId.Hex(), borrow.CollectionId.Hex(), "put")
+
+	return s.buildResponse(true, "Book returned successfully", borrow.Id.Hex(), borrow.BookId.Hex()), nil
+}
+
+func (s *BorrowServiceServer) fetchBookAndCollection(ctx context.Context, collectionId string) (*model.Book, error) {
+	var wg sync.WaitGroup
+	var book *model.Book
+	var collectionErr, bookErr error
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+
+		_, err := s.getCollection(ctx, collectionId)
+		if err != nil {
+			collectionErr = err
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		book_resp, err := s.getBook(ctx, collectionId)
+		if err != nil {
+			bookErr = err
+		} else {
+			book = book_resp
+		}
+	}()
+	wg.Wait()
+
+	// Check for any error
+	if collectionErr != nil {
+		return nil, status.Error(status.Code(collectionErr), collectionErr.Error())
+	}
+	if bookErr != nil {
+		return nil, status.Error(status.Code(bookErr), bookErr.Error())
 	}
 
-	// Update collection stock
-	if _, err := s.collectionClient.DecrementAvailableBooks(ctx, &pb.DecrementAvailableBooksRequest{
-		Id:     borrow.CollectionId.Hex(),
-		Amount: 1,
-	}); err != nil {
-		// Compensate book state
-		s.compensateBook(ctx, borrow.BookId.Hex(), false, true, true, now)
-		return nil, status.Errorf(codes.Aborted, "failed to increment stock atomically: %v", err)
-	}
-
-	return s.buildResponse(true, "Book returned successfully", []*pb.Borrow{model.ToPbBorrow(&borrow)}), nil
+	return book, nil
 }
 
 func (s *BorrowServiceServer) getCollection(ctx context.Context, collectionId string) (*model.Collection, error) {
@@ -136,80 +145,44 @@ func (s *BorrowServiceServer) getCollection(ctx context.Context, collectionId st
 	return collections[0], nil
 }
 
-func (s *BorrowServiceServer) getOrCreateBook(ctx context.Context, collectionId string) (*model.Book, error) {
+func (s *BorrowServiceServer) getBook(ctx context.Context, collectionId string) (*model.Book, error) {
 	// Try to get an available book first
 	bookResponse, err := s.bookClient.GetAvailableBook(ctx, &pb.GetAvailableBookRequest{CollectionId: collectionId})
-	if err == nil {
-		books := model.FromPbBooks(bookResponse.Book)
-		if len(books) > 0 {
-			return books[0], nil
-		}
-	}
-
-	// If no available book found and not a "not found" error, return error
-	if status.Code(err) != codes.NotFound {
-		log.Printf("Error retrieving books: %v", err)
-		return nil, status.Error(codes.Internal, "Error retrieving books")
-	}
-
-	// Create new book if none available
-	return s.createNewBook(ctx, collectionId)
-}
-
-func (s *BorrowServiceServer) createNewBook(ctx context.Context, collectionId string) (*model.Book, error) {
-	now := time.Now()
-	addResp, err := s.bookClient.AddBook(ctx, &pb.AddBookRequest{
-		Book: &pb.Book{
-			Id:           primitive.NewObjectID().Hex(),
-			CollectionId: collectionId,
-			IsBorrowed:   &wrapperspb.BoolValue{Value: true},
-			CreatedAt:    now.UTC().Format(time.RFC3339Nano),
-			UpdatedAt:    now.UTC().Format(time.RFC3339Nano),
-		},
-	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create new book: %v", err)
+		return nil, err
 	}
 
-	books := model.FromPbBooks(addResp.Book)
-	if len(books) == 0 {
-		return nil, status.Error(codes.Internal, "created book but response was empty")
+	books := model.FromPbBooks(bookResponse.Book)
+	if len(books) > 0 {
+		s.updateCache(ctx, books[0].Id.Hex(), collectionId, "remove")
+		return books[0], nil
 	}
 
-	return books[0], nil
+	return nil, status.Error(codes.Internal, "Unknown error")
 }
 
-func (s *BorrowServiceServer) createBorrowWithCompensation(ctx context.Context, book *model.Book, collection *model.Collection) (*model.Borrow, error) {
+func (s *BorrowServiceServer) createBorrowWithCompensation(ctx context.Context, book *model.Book, collectionId string) (*model.Borrow, error) {
 	now := time.Now()
 	due := now.AddDate(0, 0, 7)
 
-	// Track if we need to update existing book vs created new one
-	needsBookUpdate := !book.IsBorrowed                       // If book wasn't already borrowed, we need to mark it
-	wasNewBook := book.CreatedAt.After(now.Add(-time.Minute)) // Heuristic: if created recently, it's new
+	collection_id, err := primitive.ObjectIDFromHex(collectionId)
+	if err != nil {
+		return nil, err
+	}
 
-	// Mark existing book as borrowed if needed
+	needsBookUpdate := !book.IsBorrowed // If book wasn't already borrowed, we need to mark it
+
 	if needsBookUpdate {
 		if err := s.markBookBorrowedStatus(ctx, book.Id.Hex(), true, now); err != nil {
 			return nil, err
 		}
 	}
 
-	// Atomic stock decrement
-	if _, err := s.collectionClient.DecrementAvailableBooks(ctx, &pb.DecrementAvailableBooksRequest{
-		Id:     collection.Id.Hex(),
-		Amount: -1,
-	}); err != nil {
-		// Compensate book state
-		s.compensateBook(ctx, book.Id.Hex(), wasNewBook, needsBookUpdate, false, now)
-		return nil, status.Errorf(codes.Aborted, "failed to decrement stock atomically: %v", err)
-	}
-
-	// Create borrow record
 	newBorrow := &model.Borrow{
 		Id:           primitive.NewObjectID(),
 		BookId:       book.Id,
 		UserId:       primitive.NewObjectID(), // TODO: use real user ID
-		CollectionId: collection.Id,
+		CollectionId: collection_id,
 		BorrowDate:   now,
 		DueDate:      &due,
 		CreatedAt:    now,
@@ -217,13 +190,11 @@ func (s *BorrowServiceServer) createBorrowWithCompensation(ctx context.Context, 
 	}
 
 	if err := s.service.Create(ctx, *newBorrow); err != nil {
-		// Compensate both stock and book state
-		s.compensateStock(ctx, collection.Id.Hex())
-		s.compensateBook(ctx, book.Id.Hex(), wasNewBook, needsBookUpdate, false, now)
+		// Mark book as not borrowed on failure
+		s.markBookBorrowedStatus(ctx, book.Id.Hex(), false, now)
 		return nil, status.Errorf(codes.Internal, "failed to create borrow record: %v", err)
 	}
 
-	log.Printf("Book borrowed successfully: %v", newBorrow.Id.Hex())
 	return newBorrow, nil
 }
 
@@ -243,35 +214,42 @@ func (s *BorrowServiceServer) markBookBorrowedStatus(ctx context.Context, bookId
 	return nil
 }
 
-func (s *BorrowServiceServer) compensateBook(ctx context.Context, bookId string, wasNewBook, needsUnmark bool, borrowed bool, timestamp time.Time) {
-	if wasNewBook {
-		// Delete the newly created book
-		_, _ = s.bookClient.DeleteBook(ctx, &pb.DeleteBookRequest{Id: bookId})
-	} else if needsUnmark {
-		// Unmark existing book as borrowed
-		_, _ = s.bookClient.UpdateBook(ctx, &pb.UpdateBookRequest{
-			Id: bookId,
-			Payload: &structpb.Struct{
-				Fields: map[string]*structpb.Value{
-					"is_borrowed": structpb.NewBoolValue(borrowed),
-					"updated_at":  structpb.NewStringValue(timestamp.UTC().Format(time.RFC3339Nano)),
-				},
-			},
-		})
+func (s *BorrowServiceServer) buildResponse(success bool, message string, borrowId string, bookId string) *pb.BorrowServiceResponse {
+	return &pb.BorrowServiceResponse{
+		Id:      borrowId,
+		BookId:  bookId,
+		Success: success,
+		Message: message,
 	}
 }
 
-func (s *BorrowServiceServer) compensateStock(ctx context.Context, collectionId string) {
-	_, _ = s.collectionClient.DecrementAvailableBooks(ctx, &pb.DecrementAvailableBooksRequest{
-		Id:     collectionId,
-		Amount: 1, // increment back
-	})
-}
+func (s *BorrowServiceServer) updateCache(ctx context.Context, bookId string, collectionId string, action string) {
+	cacheKey := "available_books:" + collectionId
 
-func (s *BorrowServiceServer) buildResponse(success bool, message string, borrow []*pb.Borrow) *pb.BorrowServiceResponse {
-	return &pb.BorrowServiceResponse{
-		Success: success,
-		Borrow:  borrow,
-		Message: message,
+	// Check key existence
+	existInCache, err := s.cache.Exists(ctx, cacheKey).Result()
+	if err != nil {
+		log.Printf("Error checking key existence: %v", err)
+		s.cache.Del(ctx, cacheKey)
+	}
+
+	if existInCache > 0 {
+		switch action {
+		case "put":
+			err = s.cache.SAdd(ctx, cacheKey, bookId, time.Hour).Err()
+			if err != nil {
+				s.cache.Del(ctx, cacheKey)
+			}
+		case "remove":
+			err := s.cache.SRem(ctx, cacheKey, bookId).Err()
+			if err != nil {
+				s.cache.Del(ctx, cacheKey)
+			}
+		}
+	} else if action == "put" {
+		err = s.cache.SAdd(ctx, cacheKey, bookId, time.Hour).Err()
+		if err != nil {
+			s.cache.Del(ctx, cacheKey)
+		}
 	}
 }
