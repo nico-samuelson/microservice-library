@@ -184,14 +184,13 @@ func (x *Response) GetSuccess() bool {
 
 // Get Collection messages
 type GetCollectionRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Name           *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	Author         *string                `protobuf:"bytes,3,opt,name=author,proto3,oneof" json:"author,omitempty"`
-	Categories     []string               `protobuf:"bytes,4,rep,name=categories,proto3" json:"categories,omitempty"`
-	TotalBooks     *int32                 `protobuf:"varint,5,opt,name=total_books,json=totalBooks,proto3,oneof" json:"total_books,omitempty"`
-	AvailableBooks *int32                 `protobuf:"varint,6,opt,name=available_books,json=availableBooks,proto3,oneof" json:"available_books,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filter        *structpb.Struct       `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	Sort          []*Sort                `protobuf:"bytes,2,rep,name=sort,proto3" json:"sort,omitempty"`
+	Skip          int32                  `protobuf:"varint,3,opt,name=skip,proto3" json:"skip,omitempty"`
+	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetCollectionRequest) Reset() {
@@ -224,37 +223,82 @@ func (*GetCollectionRequest) Descriptor() ([]byte, []int) {
 	return file_collection_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *GetCollectionRequest) GetName() string {
-	if x != nil && x.Name != nil {
-		return *x.Name
-	}
-	return ""
-}
-
-func (x *GetCollectionRequest) GetAuthor() string {
-	if x != nil && x.Author != nil {
-		return *x.Author
-	}
-	return ""
-}
-
-func (x *GetCollectionRequest) GetCategories() []string {
+func (x *GetCollectionRequest) GetFilter() *structpb.Struct {
 	if x != nil {
-		return x.Categories
+		return x.Filter
 	}
 	return nil
 }
 
-func (x *GetCollectionRequest) GetTotalBooks() int32 {
-	if x != nil && x.TotalBooks != nil {
-		return *x.TotalBooks
+func (x *GetCollectionRequest) GetSort() []*Sort {
+	if x != nil {
+		return x.Sort
+	}
+	return nil
+}
+
+func (x *GetCollectionRequest) GetSkip() int32 {
+	if x != nil {
+		return x.Skip
 	}
 	return 0
 }
 
-func (x *GetCollectionRequest) GetAvailableBooks() int32 {
-	if x != nil && x.AvailableBooks != nil {
-		return *x.AvailableBooks
+func (x *GetCollectionRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type Sort struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Direction     int32                  `protobuf:"varint,2,opt,name=direction,proto3" json:"direction,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Sort) Reset() {
+	*x = Sort{}
+	mi := &file_collection_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Sort) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Sort) ProtoMessage() {}
+
+func (x *Sort) ProtoReflect() protoreflect.Message {
+	mi := &file_collection_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Sort.ProtoReflect.Descriptor instead.
+func (*Sort) Descriptor() ([]byte, []int) {
+	return file_collection_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Sort) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *Sort) GetDirection() int32 {
+	if x != nil {
+		return x.Direction
 	}
 	return 0
 }
@@ -269,7 +313,7 @@ type FindCollectionRequest struct {
 
 func (x *FindCollectionRequest) Reset() {
 	*x = FindCollectionRequest{}
-	mi := &file_collection_proto_msgTypes[3]
+	mi := &file_collection_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -281,7 +325,7 @@ func (x *FindCollectionRequest) String() string {
 func (*FindCollectionRequest) ProtoMessage() {}
 
 func (x *FindCollectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_proto_msgTypes[3]
+	mi := &file_collection_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -294,7 +338,7 @@ func (x *FindCollectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindCollectionRequest.ProtoReflect.Descriptor instead.
 func (*FindCollectionRequest) Descriptor() ([]byte, []int) {
-	return file_collection_proto_rawDescGZIP(), []int{3}
+	return file_collection_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FindCollectionRequest) GetId() string {
@@ -314,7 +358,7 @@ type AddCollectionRequest struct {
 
 func (x *AddCollectionRequest) Reset() {
 	*x = AddCollectionRequest{}
-	mi := &file_collection_proto_msgTypes[4]
+	mi := &file_collection_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -326,7 +370,7 @@ func (x *AddCollectionRequest) String() string {
 func (*AddCollectionRequest) ProtoMessage() {}
 
 func (x *AddCollectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_proto_msgTypes[4]
+	mi := &file_collection_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -339,7 +383,7 @@ func (x *AddCollectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddCollectionRequest.ProtoReflect.Descriptor instead.
 func (*AddCollectionRequest) Descriptor() ([]byte, []int) {
-	return file_collection_proto_rawDescGZIP(), []int{4}
+	return file_collection_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *AddCollectionRequest) GetCollection() *Collection {
@@ -360,7 +404,7 @@ type UpdateCollectionRequest struct {
 
 func (x *UpdateCollectionRequest) Reset() {
 	*x = UpdateCollectionRequest{}
-	mi := &file_collection_proto_msgTypes[5]
+	mi := &file_collection_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -372,7 +416,7 @@ func (x *UpdateCollectionRequest) String() string {
 func (*UpdateCollectionRequest) ProtoMessage() {}
 
 func (x *UpdateCollectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_proto_msgTypes[5]
+	mi := &file_collection_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -385,7 +429,7 @@ func (x *UpdateCollectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateCollectionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateCollectionRequest) Descriptor() ([]byte, []int) {
-	return file_collection_proto_rawDescGZIP(), []int{5}
+	return file_collection_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UpdateCollectionRequest) GetId() string {
@@ -412,7 +456,7 @@ type DeleteCollectionRequest struct {
 
 func (x *DeleteCollectionRequest) Reset() {
 	*x = DeleteCollectionRequest{}
-	mi := &file_collection_proto_msgTypes[6]
+	mi := &file_collection_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -424,7 +468,7 @@ func (x *DeleteCollectionRequest) String() string {
 func (*DeleteCollectionRequest) ProtoMessage() {}
 
 func (x *DeleteCollectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_proto_msgTypes[6]
+	mi := &file_collection_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -437,7 +481,7 @@ func (x *DeleteCollectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteCollectionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteCollectionRequest) Descriptor() ([]byte, []int) {
-	return file_collection_proto_rawDescGZIP(), []int{6}
+	return file_collection_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeleteCollectionRequest) GetId() string {
@@ -457,7 +501,7 @@ type DecrementAvailableBooksRequest struct {
 
 func (x *DecrementAvailableBooksRequest) Reset() {
 	*x = DecrementAvailableBooksRequest{}
-	mi := &file_collection_proto_msgTypes[7]
+	mi := &file_collection_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -469,7 +513,7 @@ func (x *DecrementAvailableBooksRequest) String() string {
 func (*DecrementAvailableBooksRequest) ProtoMessage() {}
 
 func (x *DecrementAvailableBooksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_proto_msgTypes[7]
+	mi := &file_collection_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -482,7 +526,7 @@ func (x *DecrementAvailableBooksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecrementAvailableBooksRequest.ProtoReflect.Descriptor instead.
 func (*DecrementAvailableBooksRequest) Descriptor() ([]byte, []int) {
-	return file_collection_proto_rawDescGZIP(), []int{7}
+	return file_collection_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DecrementAvailableBooksRequest) GetId() string {
@@ -524,20 +568,15 @@ const file_collection_proto_rawDesc = "" +
 	"collection\x18\x01 \x03(\v2\x12.shared.CollectionR\n" +
 	"collection\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x18\n" +
-	"\asuccess\x18\x03 \x01(\bR\asuccess\"\xf8\x01\n" +
-	"\x14GetCollectionRequest\x12\x17\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1b\n" +
-	"\x06author\x18\x03 \x01(\tH\x01R\x06author\x88\x01\x01\x12\x1e\n" +
-	"\n" +
-	"categories\x18\x04 \x03(\tR\n" +
-	"categories\x12$\n" +
-	"\vtotal_books\x18\x05 \x01(\x05H\x02R\n" +
-	"totalBooks\x88\x01\x01\x12,\n" +
-	"\x0favailable_books\x18\x06 \x01(\x05H\x03R\x0eavailableBooks\x88\x01\x01B\a\n" +
-	"\x05_nameB\t\n" +
-	"\a_authorB\x0e\n" +
-	"\f_total_booksB\x12\n" +
-	"\x10_available_books\"'\n" +
+	"\asuccess\x18\x03 \x01(\bR\asuccess\"\x93\x01\n" +
+	"\x14GetCollectionRequest\x12/\n" +
+	"\x06filter\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x06filter\x12 \n" +
+	"\x04sort\x18\x02 \x03(\v2\f.shared.SortR\x04sort\x12\x12\n" +
+	"\x04skip\x18\x03 \x01(\x05R\x04skip\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\"6\n" +
+	"\x04Sort\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1c\n" +
+	"\tdirection\x18\x02 \x01(\x05R\tdirection\"'\n" +
 	"\x15FindCollectionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"J\n" +
 	"\x14AddCollectionRequest\x122\n" +
@@ -573,39 +612,42 @@ func file_collection_proto_rawDescGZIP() []byte {
 	return file_collection_proto_rawDescData
 }
 
-var file_collection_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_collection_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_collection_proto_goTypes = []any{
 	(*Collection)(nil),                     // 0: shared.Collection
 	(*Response)(nil),                       // 1: shared.Response
 	(*GetCollectionRequest)(nil),           // 2: shared.GetCollectionRequest
-	(*FindCollectionRequest)(nil),          // 3: shared.FindCollectionRequest
-	(*AddCollectionRequest)(nil),           // 4: shared.AddCollectionRequest
-	(*UpdateCollectionRequest)(nil),        // 5: shared.UpdateCollectionRequest
-	(*DeleteCollectionRequest)(nil),        // 6: shared.DeleteCollectionRequest
-	(*DecrementAvailableBooksRequest)(nil), // 7: shared.DecrementAvailableBooksRequest
-	(*structpb.Struct)(nil),                // 8: google.protobuf.Struct
+	(*Sort)(nil),                           // 3: shared.Sort
+	(*FindCollectionRequest)(nil),          // 4: shared.FindCollectionRequest
+	(*AddCollectionRequest)(nil),           // 5: shared.AddCollectionRequest
+	(*UpdateCollectionRequest)(nil),        // 6: shared.UpdateCollectionRequest
+	(*DeleteCollectionRequest)(nil),        // 7: shared.DeleteCollectionRequest
+	(*DecrementAvailableBooksRequest)(nil), // 8: shared.DecrementAvailableBooksRequest
+	(*structpb.Struct)(nil),                // 9: google.protobuf.Struct
 }
 var file_collection_proto_depIdxs = []int32{
-	0, // 0: shared.Response.collection:type_name -> shared.Collection
-	0, // 1: shared.AddCollectionRequest.collection:type_name -> shared.Collection
-	8, // 2: shared.UpdateCollectionRequest.payload:type_name -> google.protobuf.Struct
-	2, // 3: shared.CollectionService.GetCollection:input_type -> shared.GetCollectionRequest
-	3, // 4: shared.CollectionService.FindCollectionById:input_type -> shared.FindCollectionRequest
-	4, // 5: shared.CollectionService.AddCollection:input_type -> shared.AddCollectionRequest
-	5, // 6: shared.CollectionService.UpdateCollection:input_type -> shared.UpdateCollectionRequest
-	6, // 7: shared.CollectionService.DeleteCollection:input_type -> shared.DeleteCollectionRequest
-	7, // 8: shared.CollectionService.DecrementAvailableBooks:input_type -> shared.DecrementAvailableBooksRequest
-	1, // 9: shared.CollectionService.GetCollection:output_type -> shared.Response
-	1, // 10: shared.CollectionService.FindCollectionById:output_type -> shared.Response
-	1, // 11: shared.CollectionService.AddCollection:output_type -> shared.Response
-	1, // 12: shared.CollectionService.UpdateCollection:output_type -> shared.Response
-	1, // 13: shared.CollectionService.DeleteCollection:output_type -> shared.Response
-	1, // 14: shared.CollectionService.DecrementAvailableBooks:output_type -> shared.Response
-	9, // [9:15] is the sub-list for method output_type
-	3, // [3:9] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: shared.Response.collection:type_name -> shared.Collection
+	9,  // 1: shared.GetCollectionRequest.filter:type_name -> google.protobuf.Struct
+	3,  // 2: shared.GetCollectionRequest.sort:type_name -> shared.Sort
+	0,  // 3: shared.AddCollectionRequest.collection:type_name -> shared.Collection
+	9,  // 4: shared.UpdateCollectionRequest.payload:type_name -> google.protobuf.Struct
+	2,  // 5: shared.CollectionService.GetCollection:input_type -> shared.GetCollectionRequest
+	4,  // 6: shared.CollectionService.FindCollectionById:input_type -> shared.FindCollectionRequest
+	5,  // 7: shared.CollectionService.AddCollection:input_type -> shared.AddCollectionRequest
+	6,  // 8: shared.CollectionService.UpdateCollection:input_type -> shared.UpdateCollectionRequest
+	7,  // 9: shared.CollectionService.DeleteCollection:input_type -> shared.DeleteCollectionRequest
+	8,  // 10: shared.CollectionService.DecrementAvailableBooks:input_type -> shared.DecrementAvailableBooksRequest
+	1,  // 11: shared.CollectionService.GetCollection:output_type -> shared.Response
+	1,  // 12: shared.CollectionService.FindCollectionById:output_type -> shared.Response
+	1,  // 13: shared.CollectionService.AddCollection:output_type -> shared.Response
+	1,  // 14: shared.CollectionService.UpdateCollection:output_type -> shared.Response
+	1,  // 15: shared.CollectionService.DeleteCollection:output_type -> shared.Response
+	1,  // 16: shared.CollectionService.DecrementAvailableBooks:output_type -> shared.Response
+	11, // [11:17] is the sub-list for method output_type
+	5,  // [5:11] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_collection_proto_init() }
@@ -613,14 +655,13 @@ func file_collection_proto_init() {
 	if File_collection_proto != nil {
 		return
 	}
-	file_collection_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_collection_proto_rawDesc), len(file_collection_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

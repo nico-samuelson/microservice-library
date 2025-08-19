@@ -3,25 +3,25 @@ package service
 import (
 	"context"
 	"log"
-	"shared/pkg/repository"
+	interfaces "shared/pkg/interface"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type BaseService[K any, V any] struct {
-	Repo      *repository.BaseRepository[K]
-	Validator *ValidationService[K, V]
+	Repo      interfaces.RepositoryInterface[K]
+	Validator interfaces.ValidatorInterface[K, V]
 }
 
-func NewBaseService[K any, V any](repository *repository.BaseRepository[K]) *BaseService[K, V] {
+func NewBaseService[K any, V any](repository interfaces.RepositoryInterface[K]) *BaseService[K, V] {
 	return &BaseService[K, V]{
 		Repo:      repository,
 		Validator: NewValidationService[K, V](),
 	}
 }
 
-func (s *BaseService[K, V]) List(ctx context.Context) ([]K, error) {
-	return s.Repo.GetAll(ctx)
+func (s *BaseService[K, V]) List(ctx context.Context, filter bson.M, sort bson.D, skip int, limit int) ([]K, error) {
+	return s.Repo.GetAll(ctx, filter, sort, skip, limit)
 }
 
 func (s *BaseService[K, V]) FindById(ctx context.Context, id string) (*K, error) {

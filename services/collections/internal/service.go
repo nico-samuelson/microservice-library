@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	interfaces "shared/pkg/interface"
 	"shared/pkg/model"
 	"shared/pkg/service"
 	"shared/pkg/utils"
@@ -23,24 +24,48 @@ import (
 
 type CollectionServiceServer struct {
 	pb.UnimplementedCollectionServiceServer
-	service    *service.BaseService[model.Collection, model.CollectionUpdateRequest]
-	repository *CollectionRepository
-	cache      *redis.Client
-	bookClient pb.BookServiceClient
+	Service    interfaces.ServiceInterface[model.Collection, model.CollectionUpdateRequest]
+	Repository CollectionRepositoryInterface
+	Cache      *redis.Client
+	BookClient pb.BookServiceClient
 }
 
 func NewCollectionService(database *mongo.Database, collection_name string, connections map[string]*grpc.ClientConn, cache *redis.Client) *CollectionServiceServer {
 	repository := NewCollectionRepository(database, collection_name)
+
 	return &CollectionServiceServer{
-		service:    service.NewBaseService[model.Collection, model.CollectionUpdateRequest](&repository.Repository),
-		repository: repository,
-		cache:      cache,
-		bookClient: pb.NewBookServiceClient(connections["book"]),
+		Service:    service.NewBaseService[model.Collection, model.CollectionUpdateRequest](repository.Repository),
+		Repository: repository,
+		Cache:      cache,
+		BookClient: pb.NewBookServiceClient(connections["book"]),
 	}
 }
 
 func (s *CollectionServiceServer) GetCollection(ctx context.Context, in *pb.GetCollectionRequest) (*pb.Response, error) {
-	data, err := s.service.List(ctx)
+	// Parse filter and sort from protobuf
+	var filter bson.M
+	var sort bson.D
+
+	if len(in.Filter.Fields) > 0 {
+		filterMap := in.Filter.AsMap()
+		filter = bson.M{}
+		for k, v := range filterMap {
+			filter[k] = v
+		}
+	} else {
+		filter = bson.M{}
+	}
+
+	if len(in.Sort) > 0 {
+		sort = bson.D{}
+		for _, sortItem := range in.Sort {
+			sort = append(sort, bson.E{Key: sortItem.Key, Value: sortItem.Direction})
+		}
+	} else {
+		sort = bson.D{}
+	}
+
+	data, err := s.Service.List(ctx, filter, sort, int(in.Skip), int(in.Limit))
 
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
@@ -54,7 +79,7 @@ func (s *CollectionServiceServer) FindCollectionById(ctx context.Context, in *pb
 	collection, success := s.getCachedCollection(ctx, in.Id)
 
 	if !success {
-		data, err := s.service.Find(ctx, bson.M{"_id": in.Id})
+		data, err := s.Service.Find(ctx, bson.M{"_id": in.Id})
 
 		if err == mongo.ErrNoDocuments {
 			return s.buildResponse(false, "Collection not found", nil), nil
@@ -70,7 +95,7 @@ func (s *CollectionServiceServer) FindCollectionById(ctx context.Context, in *pb
 		if err != nil {
 			log.Printf("Error packing JSON: %s", err)
 		} else {
-			err = s.cache.Set(ctx, "collection:"+in.Id, bytes, time.Hour).Err()
+			err = s.Cache.Set(ctx, "collection:"+in.Id, bytes, time.Hour).Err()
 			if err != nil {
 				log.Printf("Error setting cache: %v", err)
 			}
@@ -97,7 +122,7 @@ func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddC
 	}
 
 	collection := model.FromPbCollection(in.Collection)
-	err = s.service.Create(ctx, *collection)
+	err = s.Service.Create(ctx, *collection)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -118,10 +143,10 @@ func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddC
 				}
 				books = append(books, &book)
 			}
-			
+
 			retries := 0
 			for retries < 3 {
-				if _, err := s.bookClient.BulkInsert(backgroundCtx, &pb.BulkInsertBookRequest{
+				if _, err := s.BookClient.BulkInsert(backgroundCtx, &pb.BulkInsertBookRequest{
 					Books: books,
 				}); err != nil {
 					// Log error but don't fail the main operation
@@ -153,7 +178,7 @@ func (s *CollectionServiceServer) UpdateCollection(ctx context.Context, in *pb.U
 
 	if len(filter) > 0 {
 		// Check if updated title already exists
-		found, err := s.service.Find(ctx, filter)
+		found, err := s.Service.Find(ctx, filter)
 		if !found.Id.IsZero() && found.Id.Hex() != in.Id {
 			return nil, status.Error(codes.AlreadyExists, "Collection already exists!")
 		} else if err != nil && err != mongo.ErrNoDocuments {
@@ -162,7 +187,7 @@ func (s *CollectionServiceServer) UpdateCollection(ctx context.Context, in *pb.U
 	}
 
 	// Update collection
-	data, err := s.service.Update(ctx, update, in.Id)
+	data, err := s.Service.Update(ctx, update, in.Id)
 	if err == mongo.ErrNoDocuments {
 		reply := s.buildResponse(false, "Collection not found", nil)
 		return reply, nil
@@ -180,7 +205,7 @@ func (s *CollectionServiceServer) UpdateCollection(ctx context.Context, in *pb.U
 }
 
 func (s *CollectionServiceServer) DeleteCollection(ctx context.Context, in *pb.DeleteCollectionRequest) (*pb.Response, error) {
-	data, err := s.service.Delete(ctx, in.Id)
+	data, err := s.Service.Delete(ctx, in.Id)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return s.buildResponse(false, "Collection not found", nil), nil
@@ -194,12 +219,12 @@ func (s *CollectionServiceServer) DeleteCollection(ctx context.Context, in *pb.D
 }
 
 func (s *CollectionServiceServer) DecrementAvailableBooks(ctx context.Context, in *pb.DecrementAvailableBooksRequest) (*pb.Response, error) {
-	result, err := s.repository.UpdateBookStock(ctx, map[string]interface{}{"total_books": in.Amount}, in.Id)
+	result, err := s.Repository.UpdateBookStock(ctx, map[string]interface{}{"total_books": in.Amount}, in.Id)
 
 	if err != nil {
 		return s.buildResponse(false, err.Error(), []*pb.Collection{}), err
 	}
-	if result.ModifiedCount == 0 {
+	if result.(mongo.UpdateResult).ModifiedCount == 0 {
 		return s.buildResponse(false, "No book updated", []*pb.Collection{}), err
 	}
 
@@ -208,18 +233,18 @@ func (s *CollectionServiceServer) DecrementAvailableBooks(ctx context.Context, i
 	if !success {
 		log.Printf("Error getting cache")
 	} else {
-		cachedCollection.AvailableBooks -= int(in.Amount)
+		cachedCollection.TotalBooks += int(in.Amount)
 
 		bytes, err := json.Marshal(cachedCollection)
 		if err != nil {
 			log.Printf("Error packing JSON: %s", err)
-			s.cache.Del(ctx, "collection:"+in.Id)
+			s.Cache.Del(ctx, "collection:"+in.Id)
 		}
 
-		err = s.cache.Set(ctx, "collection:"+in.Id, bytes, time.Hour).Err()
+		err = s.Cache.Set(ctx, "collection:"+in.Id, bytes, time.Hour).Err()
 		if err != nil {
 			log.Printf("Error updating cache: %s", err)
-			s.cache.Del(ctx, "collection:"+in.Id)
+			s.Cache.Del(ctx, "collection:"+in.Id)
 		}
 	}
 
@@ -227,7 +252,7 @@ func (s *CollectionServiceServer) DecrementAvailableBooks(ctx context.Context, i
 }
 
 func (s *CollectionServiceServer) getCachedCollection(ctx context.Context, id string) (*model.Collection, bool) {
-	collection, success := utils.GetCachedData[model.Collection](ctx, s.cache, "collection:"+id)
+	collection, success := utils.GetCachedData[model.Collection](ctx, s.Cache, "collection:"+id)
 
 	if !success {
 		return nil, false
@@ -238,7 +263,7 @@ func (s *CollectionServiceServer) getCachedCollection(ctx context.Context, id st
 
 func (s *CollectionServiceServer) invalidateCache(ctx context.Context, id string) {
 	// Invalidate cache
-	err := s.cache.Del(ctx, "collection:"+id).Err()
+	err := s.Cache.Del(ctx, "collection:"+id).Err()
 	if err != nil {
 		log.Printf("Error deleting cache: %v", err)
 	}
@@ -257,7 +282,7 @@ func (s *CollectionServiceServer) checkIfExists(ctx context.Context, name string
 		"name":   name,
 		"author": author,
 	}
-	exists, err := s.service.Exists(ctx, filter)
+	exists, err := s.Service.Exists(ctx, filter)
 	if err != nil {
 		return false, err
 	}

@@ -22,13 +22,21 @@ func NewRepository[K any](database *mongo.Database, collection_name string) *Bas
 	return &BaseRepository[K]{Database: database, CollectionName: collection_name}
 }
 
-func (r *BaseRepository[K]) GetAll(ctx context.Context) ([]K, error) {
+func (r BaseRepository[K]) GetAll(ctx context.Context, filter bson.M, sort bson.D, skip int, limit int) ([]K, error) {
 	coll := r.Database.Collection(r.CollectionName)
 
 	findOptions := options.Find()
-	findOptions.SetLimit(100)                         
+	if len(sort) > 0 {
+		findOptions.SetSort(sort)
+	}
+	if limit > 0 {
+		findOptions.SetLimit(int64(limit))
+	}
+	if skip > 0 {
+		findOptions.SetSkip(int64(skip))
+	}
 
-	cursor, err := coll.Find(ctx, bson.D{}, findOptions)
+	cursor, err := coll.Find(ctx, filter, findOptions)
 	if err != nil {
 		log.Printf("Error fetching data: %s", err)
 		return []K{}, err
@@ -44,7 +52,7 @@ func (r *BaseRepository[K]) GetAll(ctx context.Context) ([]K, error) {
 	return results, err
 }
 
-func (r *BaseRepository[K]) Find(ctx context.Context, filter bson.M) (*K, error) {
+func (r BaseRepository[K]) Find(ctx context.Context, filter bson.M) (*K, error) {
 	var result K
 
 	idStr, ok := filter["_id"].(string)
@@ -67,7 +75,7 @@ func (r *BaseRepository[K]) Find(ctx context.Context, filter bson.M) (*K, error)
 	return &result, err
 }
 
-func (r *BaseRepository[K]) Insert(ctx context.Context, obj K) (*mongo.InsertOneResult, error) {
+func (r BaseRepository[K]) Insert(ctx context.Context, obj K) (interface{}, error) {
 	coll := r.Database.Collection(r.CollectionName)
 	result, err := coll.InsertOne(ctx, obj)
 
@@ -78,7 +86,7 @@ func (r *BaseRepository[K]) Insert(ctx context.Context, obj K) (*mongo.InsertOne
 	return result, err
 }
 
-func (r *BaseRepository[K]) UpdateOne(ctx context.Context, obj map[string]interface{}, id string) (K, error) {
+func (r BaseRepository[K]) UpdateOne(ctx context.Context, obj map[string]interface{}, id string) (K, error) {
 	coll := r.Database.Collection(r.CollectionName)
 	obj["updated_at"] = time.Now()
 
@@ -105,7 +113,7 @@ func (r *BaseRepository[K]) UpdateOne(ctx context.Context, obj map[string]interf
 	return result, err
 }
 
-func (r *BaseRepository[K]) DeleteOne(ctx context.Context, id string) (K, error) {
+func (r BaseRepository[K]) DeleteOne(ctx context.Context, id string) (K, error) {
 	coll := r.Database.Collection(r.CollectionName)
 	var result K
 
@@ -123,7 +131,7 @@ func (r *BaseRepository[K]) DeleteOne(ctx context.Context, id string) (K, error)
 	return result, err
 }
 
-func (r *BaseRepository[K]) DataExists(ctx context.Context, filter bson.M) (bool, error) {
+func (r BaseRepository[K]) DataExists(ctx context.Context, filter bson.M) (bool, error) {
 	coll := r.Database.Collection(r.CollectionName)
 
 	opts := options.FindOne().SetProjection(bson.M{"_id": 1})
@@ -140,7 +148,7 @@ func (r *BaseRepository[K]) DataExists(ctx context.Context, filter bson.M) (bool
 	return true, nil
 }
 
-func (r *BaseRepository[K]) Count(ctx context.Context, filter bson.M) (int64, error) {
+func (r BaseRepository[K]) Count(ctx context.Context, filter bson.M) (int64, error) {
 	coll := r.Database.Collection(r.CollectionName)
 
 	count, err := coll.CountDocuments(ctx, filter)
@@ -152,7 +160,7 @@ func (r *BaseRepository[K]) Count(ctx context.Context, filter bson.M) (int64, er
 	return count, err
 }
 
-func (r *BaseRepository[K]) Upsert(ctx context.Context, data K, filter bson.M) (*mongo.UpdateResult, error) {
+func (r BaseRepository[K]) Upsert(ctx context.Context, data K, filter bson.M) (*mongo.UpdateResult, error) {
 	coll := r.Database.Collection(r.CollectionName)
 	update := r.buildUpdateDocument(data)
 	update["created_at"] = time.Now()
@@ -170,7 +178,7 @@ func (r *BaseRepository[K]) Upsert(ctx context.Context, data K, filter bson.M) (
 	return result, err
 }
 
-func (r *BaseRepository[K]) BulkInsert(ctx context.Context, obj []K) (*mongo.InsertManyResult, error) {
+func (r BaseRepository[K]) BulkInsert(ctx context.Context, obj []K) (interface{}, error) {
 	coll := r.Database.Collection(r.CollectionName)
 	result, err := coll.InsertMany(ctx, obj)
 
@@ -184,7 +192,7 @@ func (r *BaseRepository[K]) BulkInsert(ctx context.Context, obj []K) (*mongo.Ins
 	return result, err
 }
 
-func (r *BaseRepository[K]) buildUpdateDocument(data K) bson.M {
+func (r BaseRepository[K]) buildUpdateDocument(data K) bson.M {
 	update := bson.M{}
 	v := reflect.ValueOf(data)
 	t := reflect.TypeOf(data)

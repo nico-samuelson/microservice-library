@@ -34,11 +34,15 @@ message Response {
 
 // Get Collection messages
 message GetCollectionRequest {
-    optional string name = 2;
-    optional string author = 3;
-    repeated string categories = 4;
-    optional int32 total_books = 5;
-    optional int32 available_books = 6;
+    google.protobuf.Struct filter = 1;
+    repeated Sort sort = 2;
+    int32 skip = 3;
+    int32 limit = 4;
+}
+
+message Sort {
+    string key = 1;
+    int32 direction = 2;
 }
 
 // Find Collection messages
