@@ -6,6 +6,7 @@ option go_package = "./buffer";
 
 import "google/protobuf/wrappers.proto";
 import "google/protobuf/struct.proto";
+import "collection.proto";
 
 service BookService {
     rpc GetBook(GetBookRequest) returns (BookResponse);
@@ -40,9 +41,10 @@ message BookCountResponse {
 
 // Get Book messages
 message GetBookRequest {
-    optional string id = 1;
-    optional string collection_id = 2;
-    optional string is_borrowed = 3;
+    google.protobuf.Struct filter = 1;
+    repeated Sort sort = 2;
+    int32 skip = 3;
+    int32 limit = 4;
 }
 
 // Find Book messages

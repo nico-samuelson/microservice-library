@@ -222,9 +222,10 @@ func (x *BookCountResponse) GetSuccess() bool {
 // Get Book messages
 type GetBookRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *string                `protobuf:"bytes,1,opt,name=id,proto3,oneof" json:"id,omitempty"`
-	CollectionId  *string                `protobuf:"bytes,2,opt,name=collection_id,json=collectionId,proto3,oneof" json:"collection_id,omitempty"`
-	IsBorrowed    *string                `protobuf:"bytes,3,opt,name=is_borrowed,json=isBorrowed,proto3,oneof" json:"is_borrowed,omitempty"`
+	Filter        *structpb.Struct       `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	Sort          []*Sort                `protobuf:"bytes,2,rep,name=sort,proto3" json:"sort,omitempty"`
+	Skip          int32                  `protobuf:"varint,3,opt,name=skip,proto3" json:"skip,omitempty"`
+	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -259,25 +260,32 @@ func (*GetBookRequest) Descriptor() ([]byte, []int) {
 	return file_book_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *GetBookRequest) GetId() string {
-	if x != nil && x.Id != nil {
-		return *x.Id
+func (x *GetBookRequest) GetFilter() *structpb.Struct {
+	if x != nil {
+		return x.Filter
 	}
-	return ""
+	return nil
 }
 
-func (x *GetBookRequest) GetCollectionId() string {
-	if x != nil && x.CollectionId != nil {
-		return *x.CollectionId
+func (x *GetBookRequest) GetSort() []*Sort {
+	if x != nil {
+		return x.Sort
 	}
-	return ""
+	return nil
 }
 
-func (x *GetBookRequest) GetIsBorrowed() string {
-	if x != nil && x.IsBorrowed != nil {
-		return *x.IsBorrowed
+func (x *GetBookRequest) GetSkip() int32 {
+	if x != nil {
+		return x.Skip
 	}
-	return ""
+	return 0
+}
+
+func (x *GetBookRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
 }
 
 // Find Book messages
@@ -605,7 +613,7 @@ var File_book_proto protoreflect.FileDescriptor
 const file_book_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"book.proto\x12\x06shared\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xb6\x01\n" +
+	"book.proto\x12\x06shared\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x10collection.proto\"\xb6\x01\n" +
 	"\x04Book\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
 	"\rcollection_id\x18\x02 \x01(\tR\fcollectionId\x12;\n" +
@@ -622,15 +630,12 @@ const file_book_proto_rawDesc = "" +
 	"\x11BookCountResponse\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x18\n" +
-	"\asuccess\x18\x03 \x01(\bR\asuccess\"\x9e\x01\n" +
-	"\x0eGetBookRequest\x12\x13\n" +
-	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12(\n" +
-	"\rcollection_id\x18\x02 \x01(\tH\x01R\fcollectionId\x88\x01\x01\x12$\n" +
-	"\vis_borrowed\x18\x03 \x01(\tH\x02R\n" +
-	"isBorrowed\x88\x01\x01B\x05\n" +
-	"\x03_idB\x10\n" +
-	"\x0e_collection_idB\x0e\n" +
-	"\f_is_borrowed\"!\n" +
+	"\asuccess\x18\x03 \x01(\bR\asuccess\"\x8d\x01\n" +
+	"\x0eGetBookRequest\x12/\n" +
+	"\x06filter\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x06filter\x12 \n" +
+	"\x04sort\x18\x02 \x03(\v2\f.shared.SortR\x04sort\x12\x12\n" +
+	"\x04skip\x18\x03 \x01(\x05R\x04skip\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\"!\n" +
 	"\x0fFindBookRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"2\n" +
 	"\x0eAddBookRequest\x12 \n" +
@@ -687,34 +692,37 @@ var file_book_proto_goTypes = []any{
 	(*BulkInsertBookRequest)(nil),   // 10: shared.BulkInsertBookRequest
 	(*wrapperspb.BoolValue)(nil),    // 11: google.protobuf.BoolValue
 	(*structpb.Struct)(nil),         // 12: google.protobuf.Struct
+	(*Sort)(nil),                    // 13: shared.Sort
 }
 var file_book_proto_depIdxs = []int32{
 	11, // 0: shared.Book.is_borrowed:type_name -> google.protobuf.BoolValue
 	0,  // 1: shared.BookResponse.book:type_name -> shared.Book
-	0,  // 2: shared.AddBookRequest.book:type_name -> shared.Book
-	12, // 3: shared.UpdateBookRequest.payload:type_name -> google.protobuf.Struct
-	0,  // 4: shared.BulkInsertBookRequest.books:type_name -> shared.Book
-	3,  // 5: shared.BookService.GetBook:input_type -> shared.GetBookRequest
-	4,  // 6: shared.BookService.FindBookById:input_type -> shared.FindBookRequest
-	5,  // 7: shared.BookService.AddBook:input_type -> shared.AddBookRequest
-	6,  // 8: shared.BookService.UpdateBook:input_type -> shared.UpdateBookRequest
-	7,  // 9: shared.BookService.DeleteBook:input_type -> shared.DeleteBookRequest
-	8,  // 10: shared.BookService.GetAvailableBook:input_type -> shared.GetAvailableBookRequest
-	9,  // 11: shared.BookService.CountBook:input_type -> shared.CountBookRequest
-	10, // 12: shared.BookService.BulkInsert:input_type -> shared.BulkInsertBookRequest
-	1,  // 13: shared.BookService.GetBook:output_type -> shared.BookResponse
-	1,  // 14: shared.BookService.FindBookById:output_type -> shared.BookResponse
-	1,  // 15: shared.BookService.AddBook:output_type -> shared.BookResponse
-	1,  // 16: shared.BookService.UpdateBook:output_type -> shared.BookResponse
-	1,  // 17: shared.BookService.DeleteBook:output_type -> shared.BookResponse
-	1,  // 18: shared.BookService.GetAvailableBook:output_type -> shared.BookResponse
-	2,  // 19: shared.BookService.CountBook:output_type -> shared.BookCountResponse
-	1,  // 20: shared.BookService.BulkInsert:output_type -> shared.BookResponse
-	13, // [13:21] is the sub-list for method output_type
-	5,  // [5:13] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	12, // 2: shared.GetBookRequest.filter:type_name -> google.protobuf.Struct
+	13, // 3: shared.GetBookRequest.sort:type_name -> shared.Sort
+	0,  // 4: shared.AddBookRequest.book:type_name -> shared.Book
+	12, // 5: shared.UpdateBookRequest.payload:type_name -> google.protobuf.Struct
+	0,  // 6: shared.BulkInsertBookRequest.books:type_name -> shared.Book
+	3,  // 7: shared.BookService.GetBook:input_type -> shared.GetBookRequest
+	4,  // 8: shared.BookService.FindBookById:input_type -> shared.FindBookRequest
+	5,  // 9: shared.BookService.AddBook:input_type -> shared.AddBookRequest
+	6,  // 10: shared.BookService.UpdateBook:input_type -> shared.UpdateBookRequest
+	7,  // 11: shared.BookService.DeleteBook:input_type -> shared.DeleteBookRequest
+	8,  // 12: shared.BookService.GetAvailableBook:input_type -> shared.GetAvailableBookRequest
+	9,  // 13: shared.BookService.CountBook:input_type -> shared.CountBookRequest
+	10, // 14: shared.BookService.BulkInsert:input_type -> shared.BulkInsertBookRequest
+	1,  // 15: shared.BookService.GetBook:output_type -> shared.BookResponse
+	1,  // 16: shared.BookService.FindBookById:output_type -> shared.BookResponse
+	1,  // 17: shared.BookService.AddBook:output_type -> shared.BookResponse
+	1,  // 18: shared.BookService.UpdateBook:output_type -> shared.BookResponse
+	1,  // 19: shared.BookService.DeleteBook:output_type -> shared.BookResponse
+	1,  // 20: shared.BookService.GetAvailableBook:output_type -> shared.BookResponse
+	2,  // 21: shared.BookService.CountBook:output_type -> shared.BookCountResponse
+	1,  // 22: shared.BookService.BulkInsert:output_type -> shared.BookResponse
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_book_proto_init() }
@@ -722,7 +730,7 @@ func file_book_proto_init() {
 	if File_book_proto != nil {
 		return
 	}
-	file_book_proto_msgTypes[3].OneofWrappers = []any{}
+	file_collection_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
