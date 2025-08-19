@@ -5,7 +5,6 @@ import (
 	"log"
 	"shared/pkg/model"
 	pb "shared/proto/buffer"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +14,7 @@ import (
 
 type BookHandler struct {
 	client  pb.BookServiceClient
-	batcher *BookReqBatcher
+	batcher ReqBatcherInterface[pb.BookServiceClient, pb.BookResponse]
 }
 
 func NewBookHandler(conn *grpc.ClientConn) *BookHandler {
@@ -34,24 +33,12 @@ func NewBookHandlerWithBatching(conn *grpc.ClientConn, batchWindow time.Duration
 
 // GrpcBatcher handles batching for gRPC calls
 type BookReqBatcher struct {
-	client      pb.BookServiceClient
-	batchWindow time.Duration
-	mu          sync.Mutex
-	pending     []*BookBatchRequest
-	timer       *time.Timer
-}
-
-type BookBatchRequest struct {
-	ctx  context.Context
-	resp chan *pb.BookResponse
-	err  chan error
+	baseBatcher *ReqBatcher[pb.BookServiceClient, pb.BookResponse]
 }
 
 func NewBookReqBatcher(client pb.BookServiceClient, batchWindow time.Duration) *BookReqBatcher {
 	return &BookReqBatcher{
-		client:      client,
-		batchWindow: batchWindow,
-		pending:     []*BookBatchRequest{},
+		baseBatcher: NewReqBatcher[pb.BookServiceClient, pb.BookResponse](client, batchWindow),
 	}
 }
 
@@ -66,7 +53,15 @@ func (h *BookHandler) BatchingMiddleware() gin.HandlerFunc {
 }
 
 func (h *BookHandler) GetBook(c *gin.Context) {
-	request := pb.GetBookRequest{}
+	params := ParseQueryParams(c)
+	filter, sort := BuildFilterAndSort(params)
+	request := pb.GetBookRequest{
+		Filter: filter,
+		Sort:   sort,
+		Skip:   int32(params.Skip),
+		Limit:  int32(params.Limit),
+	}
+
 	response, err := h.client.GetBook(c, &request)
 	if err != nil {
 		c.JSON(500, BuildHttpResponse(false, 500, ExtractErrorMessage(err), []interface{}{}))
@@ -78,9 +73,11 @@ func (h *BookHandler) GetBook(c *gin.Context) {
 }
 
 func (h *BookHandler) GetBookBatch(c *gin.Context) {
+	params := ParseQueryParams(c)
+
 	if h.batcher != nil {
 		// Use batcher for multiple requests
-		response, err := h.batcher.GetBooksBatch(c.Request.Context(), &pb.GetBookRequest{})
+		response, err := h.batcher.GetBatch(c.Request.Context(), params)
 		if err != nil {
 			message := ExtractErrorMessage(err)
 			c.JSON(500, BuildHttpResponse(false, 500, message, []interface{}{}))
@@ -92,19 +89,19 @@ func (h *BookHandler) GetBookBatch(c *gin.Context) {
 	}
 }
 
-func (b *BookReqBatcher) GetBooksBatch(ctx context.Context, request *pb.GetBookRequest) (*pb.BookResponse, error) {
-	req := &BookBatchRequest{
+func (b *BookReqBatcher) GetBatch(ctx context.Context, params QueryParams) (*pb.BookResponse, error) {
+	req := &BatchRequest[pb.BookResponse]{
 		ctx:  ctx,
 		resp: make(chan *pb.BookResponse, 1),
 		err:  make(chan error, 1),
 	}
 
-	b.mu.Lock()
-	b.pending = append(b.pending, req)
-	if b.timer == nil {
-		b.timer = time.AfterFunc(b.batchWindow, b.flush)
+	b.baseBatcher.mu.Lock()
+	b.baseBatcher.pending = append(b.baseBatcher.pending, req)
+	if b.baseBatcher.timer == nil {
+		b.baseBatcher.timer = time.AfterFunc(b.baseBatcher.batchWindow, b.flush)
 	}
-	b.mu.Unlock()
+	b.baseBatcher.mu.Unlock()
 
 	select {
 	case r := <-req.resp:
@@ -115,14 +112,26 @@ func (b *BookReqBatcher) GetBooksBatch(ctx context.Context, request *pb.GetBookR
 }
 
 func (b *BookReqBatcher) flush() {
-	b.mu.Lock()
-	pending := b.pending
-	b.pending = nil
-	b.timer = nil
-	b.mu.Unlock()
+	b.baseBatcher.mu.Lock()
+	pending := b.baseBatcher.pending
+	b.baseBatcher.pending = nil
+	b.baseBatcher.timer = nil
+	b.baseBatcher.mu.Unlock()
+
+	var params QueryParams
+	if len(pending) > 0 {
+		params = pending[0].params
+	}
+	filter, sort := BuildFilterAndSort(params)
+	request := pb.GetBookRequest{
+		Filter: filter,
+		Sort:   sort,
+		Skip:   int32(params.Skip),
+		Limit:  int32(params.Limit),
+	}
 
 	// Make a single backend call for all pending requests
-	resp, err := b.client.GetBook(context.Background(), &pb.GetBookRequest{})
+	resp, err := b.baseBatcher.client.GetBook(context.Background(), &request)
 	for _, req := range pending {
 		log.Printf("Flushing batch with %d requests", len(pending))
 		if err != nil {

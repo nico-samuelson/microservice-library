@@ -5,7 +5,6 @@ import (
 	"log"
 	"shared/pkg/model"
 	pb "shared/proto/buffer"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +15,7 @@ import (
 // CollectionHandler with batching support
 type CollectionHandler struct {
 	client  pb.CollectionServiceClient
-	batcher *CollectionReqBatcher
+	batcher ReqBatcherInterface[pb.CollectionServiceClient, pb.Response]
 }
 
 func NewCollectionHandler(conn *grpc.ClientConn) *CollectionHandler {
@@ -35,26 +34,69 @@ func NewCollectionHandlerWithBatching(conn *grpc.ClientConn, batchWindow time.Du
 
 // GrpcBatcher handles batching for gRPC calls
 type CollectionReqBatcher struct {
-	client      pb.CollectionServiceClient
-	batchWindow time.Duration
-	mu          sync.Mutex
-	pending     []*CollectionBatchRequest
-	timer       *time.Timer
-}
-
-type CollectionBatchRequest struct {
-	ctx    context.Context
-	params QueryParams
-	resp   chan *pb.Response
-	err    chan error
+	baseBatcher *ReqBatcher[pb.CollectionServiceClient, pb.Response]
 }
 
 // NewGrpcBatcher creates a new gRPC batcher
 func NewGrpcBatcher(client pb.CollectionServiceClient, batchWindow time.Duration) *CollectionReqBatcher {
 	return &CollectionReqBatcher{
-		client:      client,
-		batchWindow: batchWindow,
-		pending:     []*CollectionBatchRequest{},
+		baseBatcher: NewReqBatcher[pb.CollectionServiceClient, pb.Response](
+			client,
+			batchWindow,
+		),
+	}
+}
+
+func (b *CollectionReqBatcher) GetBatch(ctx context.Context, params QueryParams) (*pb.Response, error) {
+	req := &BatchRequest[pb.Response]{
+		ctx:    ctx,
+		params: params,
+		resp:   make(chan *pb.Response, 1),
+		err:    make(chan error, 1),
+	}
+
+	b.baseBatcher.mu.Lock()
+	b.baseBatcher.pending = append(b.baseBatcher.pending, req)
+	if b.baseBatcher.timer == nil {
+		b.baseBatcher.timer = time.AfterFunc(b.baseBatcher.batchWindow, b.flush)
+	}
+	b.baseBatcher.mu.Unlock()
+
+	select {
+	case r := <-req.resp:
+		return r, nil
+	case e := <-req.err:
+		return nil, e
+	}
+}
+
+func (b *CollectionReqBatcher) flush() {
+	b.baseBatcher.mu.Lock()
+	pending := b.baseBatcher.pending
+	b.baseBatcher.pending = nil
+	b.baseBatcher.timer = nil
+	b.baseBatcher.mu.Unlock()
+
+	var params QueryParams
+	if len(pending) > 0 {
+		params = pending[0].params
+	}
+	filter, sort := BuildFilterAndSort(params)
+	request := pb.GetCollectionRequest{
+		Filter: filter,
+		Sort:   sort,
+		Skip:   int32(params.Skip),
+		Limit:  int32(params.Limit),
+	}
+
+	// Make a single backend call for all pending requests
+	resp, err := b.baseBatcher.client.GetCollection(context.Background(), &request)
+	for _, req := range pending {
+		if err != nil {
+			req.err <- err
+		} else {
+			req.resp <- resp
+		}
 	}
 }
 
@@ -70,30 +112,32 @@ func (h *CollectionHandler) BatchingMiddleware() gin.HandlerFunc {
 
 // GetCollection gets all collections with pagination and caching
 func (h *CollectionHandler) GetCollection(c *gin.Context) {
-	params := h.ParseQueryParams(c)
-	filter, sorts := BuildFilterAndSort(params)
-
-	response, err := h.client.GetCollection(c, &pb.GetCollectionRequest{
+	params := ParseQueryParams(c)
+	filter, sort := BuildFilterAndSort(params)
+	request := pb.GetCollectionRequest{
 		Filter: filter,
-		Sort:   sorts,
+		Sort:   sort,
 		Skip:   int32(params.Skip),
 		Limit:  int32(params.Limit),
-	})
+	}
 
+	response, err := h.client.GetCollection(c, &request)
 	if err != nil {
 		message := ExtractErrorMessage(err)
 		c.JSON(500, BuildHttpResponse(false, 500, message, []interface{}{}))
 		return
 	}
-	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{response.Collection}))
+
+	collections := model.FromPbCollections(response.Collection)
+	c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{collections}))
 }
 
 func (h *CollectionHandler) GetCollectionBatch(c *gin.Context) {
-	params := h.ParseQueryParams(c)
+	params := ParseQueryParams(c)
 
 	if h.batcher != nil {
 		// Use batcher for multiple requests
-		response, err := h.batcher.GetCollectionsBatch(c.Request.Context(), params)
+		response, err := h.batcher.GetBatch(c.Request.Context(), params)
 		if err != nil {
 			message := ExtractErrorMessage(err)
 			c.JSON(500, BuildHttpResponse(false, 500, message, []interface{}{}))
@@ -102,58 +146,6 @@ func (h *CollectionHandler) GetCollectionBatch(c *gin.Context) {
 		c.JSON(200, BuildHttpResponse(true, 200, response.Message, []interface{}{model.FromPbCollections(response.Collection)}))
 	} else {
 		h.GetCollection(c)
-	}
-}
-
-func (b *CollectionReqBatcher) GetCollectionsBatch(ctx context.Context, params QueryParams) (*pb.Response, error) {
-	req := &CollectionBatchRequest{
-		ctx:    ctx,
-		params: params,
-		resp:   make(chan *pb.Response, 1),
-		err:    make(chan error, 1),
-	}
-
-	b.mu.Lock()
-	b.pending = append(b.pending, req)
-	if b.timer == nil {
-		b.timer = time.AfterFunc(b.batchWindow, b.flush)
-	}
-	b.mu.Unlock()
-
-	select {
-	case r := <-req.resp:
-		return r, nil
-	case e := <-req.err:
-		return nil, e
-	}
-}
-
-func (b *CollectionReqBatcher) flush() {
-	b.mu.Lock()
-	pending := b.pending
-	b.pending = nil
-	b.timer = nil
-	b.mu.Unlock()
-
-	var params QueryParams
-	if len(pending) > 0 {
-		params = pending[0].params
-	}
-	filter, sorts := BuildFilterAndSort(params)
-
-	// Make a single backend call for all pending requests
-	resp, err := b.client.GetCollection(context.Background(), &pb.GetCollectionRequest{
-		Filter: filter,
-		Sort:   sorts,
-		Skip:   int32(params.Skip),
-		Limit:  int32(params.Limit),
-	})
-	for _, req := range pending {
-		if err != nil {
-			req.err <- err
-		} else {
-			req.resp <- resp
-		}
 	}
 }
 

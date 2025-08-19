@@ -21,7 +21,7 @@ type QueryParams struct {
 }
 
 // Extracts and validates query parameters from the request
-func (h *CollectionHandler) ParseQueryParams(c *gin.Context) QueryParams {
+func ParseQueryParams(c *gin.Context) QueryParams {
 	params := QueryParams{
 		Filter: bson.M{},
 		Skip:   0,
