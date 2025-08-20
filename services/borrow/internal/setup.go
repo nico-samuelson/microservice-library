@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"borrow/config"
 	"borrow/internal/db"
 	"context"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"shared/config"
 	pb "shared/proto/buffer"
 	"syscall"
 	"time"
