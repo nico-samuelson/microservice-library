@@ -69,7 +69,6 @@ func TestGetCollection_Success(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
-	assert.Equal(t, "Collections retrieved successfully", resp.Message)
 	assert.NotEmpty(t, resp.Collection)
 }
 
@@ -111,7 +110,7 @@ func TestFindCollectionById_CacheMissThenSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
 	require.Len(t, resp.Collection, 1)
-	assert.Equal(t, "Collection found", resp.Message)
+	assert.Equal(t, id.Hex(), resp.Collection[0].Id)
 
 	// Verify cached value exists and matches
 	raw, err := cache.Get(context.Background(), "collection:"+id.Hex()).Bytes()
@@ -119,6 +118,7 @@ func TestFindCollectionById_CacheMissThenSet(t *testing.T) {
 	var cached model.Collection
 	require.NoError(t, json.Unmarshal(raw, &cached))
 	assert.Equal(t, mc.Name, cached.Name)
+	assert.Equal(t, mc.Author, cached.Author)
 }
 
 func TestAddCollection_AlreadyExists(t *testing.T) {
@@ -145,7 +145,7 @@ func TestAddCollection_CreateSuccess_NoBooks(t *testing.T) {
 	resp, err := mockService.AddCollection(context.Background(), inpb)
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
-	assert.Equal(t, "Collection added!", resp.Message)
+	assert.Equal(t, inpb.Collection.Name, resp.Collection[0].Name)
 }
 
 func TestUpdateCollection_NameAuthorConflict(t *testing.T) {
@@ -183,7 +183,8 @@ func TestUpdateCollection_Success(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
-	assert.Equal(t, "Collection updated!", resp.Message)
+	assert.Equal(t, updated.Name, resp.Collection[0].Name)
+	assert.Equal(t, updated.Id.Hex(), resp.Collection[0].Id)
 }
 
 func TestDeleteCollection_NotFound(t *testing.T) {
@@ -209,7 +210,7 @@ func TestDeleteCollection_Success(t *testing.T) {
 	resp, err := mockService.DeleteCollection(context.Background(), &pb.DeleteCollectionRequest{Id: id.Hex()})
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
-	assert.Equal(t, "Collection deleted!", resp.Message)
+	assert.Equal(t, id.Hex(), resp.Collection[0].Id)
 }
 
 func TestDecrementAvailableBooks_UpdatesStockAndCache(t *testing.T) {
