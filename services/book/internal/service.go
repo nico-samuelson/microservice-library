@@ -7,7 +7,9 @@ import (
 	"math/rand/v2"
 	"time"
 
+	interfaces "shared/pkg/interface"
 	"shared/pkg/model"
+	"shared/pkg/repository"
 	"shared/pkg/service"
 	"shared/pkg/utils"
 	pb "shared/proto/buffer"
@@ -23,25 +25,45 @@ import (
 
 type BookServiceServer struct {
 	pb.UnimplementedBookServiceServer
-	service          *service.BaseService[model.Book, model.BookUpdateRequest]
-	repository       *BookRepository
-	cache            *redis.Client
-	collectionClient pb.CollectionServiceClient
+	Service          interfaces.ServiceInterface[model.Book, model.BookUpdateRequest]
+	Cache            *redis.Client
+	CollectionClient pb.CollectionServiceClient
 }
 
 func NewBookService(database *mongo.Database, collection_name string, connections map[string]*grpc.ClientConn, cache *redis.Client) *BookServiceServer {
-	repository := NewBookRepository(database, collection_name)
+	repository := repository.NewRepository[model.Book](database, collection_name)
 	return &BookServiceServer{
-		service:          service.NewBaseService[model.Book, model.BookUpdateRequest](&repository.Repository),
-		repository:       repository,
-		cache:            cache,
-		collectionClient: pb.NewCollectionServiceClient(connections["collection"]),
+		Service:          service.NewBaseService[model.Book, model.BookUpdateRequest](repository),
+		Cache:            cache,
+		CollectionClient: pb.NewCollectionServiceClient(connections["collection"]),
 	}
 }
 
 func (s *BookServiceServer) GetBook(ctx context.Context, in *pb.GetBookRequest) (*pb.BookResponse, error) {
-	data, err := s.service.List(ctx)
+	// Parse filter and sort from protobuf
+	var filter bson.M
+	var sort bson.D
 
+	if len(in.Filter.Fields) > 0 {
+		filterMap := in.Filter.AsMap()
+		filter = bson.M{}
+		for k, v := range filterMap {
+			filter[k] = v
+		}
+	} else {
+		filter = bson.M{}
+	}
+
+	if len(in.Sort) > 0 {
+		sort = bson.D{}
+		for _, sortItem := range in.Sort {
+			sort = append(sort, bson.E{Key: sortItem.Key, Value: sortItem.Direction})
+		}
+	} else {
+		sort = bson.D{}
+	}
+
+	data, err := s.Service.List(ctx, filter, sort, int(in.Skip), int(in.Limit))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -54,7 +76,7 @@ func (s *BookServiceServer) FindBookById(ctx context.Context, in *pb.FindBookReq
 	book, success := s.getCachedBook(ctx, in.Id)
 
 	if !success {
-		data, err := s.service.Find(ctx, bson.M{"_id": in.Id})
+		data, err := s.Service.Find(ctx, bson.M{"_id": in.Id})
 
 		if err == mongo.ErrNoDocuments {
 			return s.buildResponse(false, "Book not found", nil), nil
@@ -70,7 +92,7 @@ func (s *BookServiceServer) FindBookById(ctx context.Context, in *pb.FindBookReq
 		if err != nil {
 			log.Printf("Error packing JSON: %s", err)
 		} else {
-			err = s.cache.Set(ctx, "book:"+in.Id, bytes, time.Hour).Err()
+			err = s.Cache.Set(ctx, "book:"+in.Id, bytes, time.Hour).Err()
 			if err != nil {
 				log.Printf("Error setting cache: %v", err)
 			}
@@ -88,7 +110,7 @@ func (s *BookServiceServer) AddBook(ctx context.Context, in *pb.AddBookRequest) 
 	in.Book.UpdatedAt = currTime
 
 	Book := model.FromPbBook(in.Book)
-	err := s.service.Create(ctx, *Book)
+	err := s.Service.Create(ctx, *Book)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -99,7 +121,7 @@ func (s *BookServiceServer) AddBook(ctx context.Context, in *pb.AddBookRequest) 
 
 		retries := 0
 		for retries < 3 {
-			if _, err := s.collectionClient.DecrementAvailableBooks(backgroundCtx, &pb.DecrementAvailableBooksRequest{
+			if _, err := s.CollectionClient.DecrementAvailableBooks(backgroundCtx, &pb.DecrementAvailableBooksRequest{
 				Id:     in.Book.CollectionId,
 				Amount: 1,
 			}); err != nil {
@@ -127,7 +149,7 @@ func (s *BookServiceServer) UpdateBook(ctx context.Context, in *pb.UpdateBookReq
 	}
 	delete(update, "id")
 
-	data, err := s.service.Update(ctx, update, in.Id)
+	data, err := s.Service.Update(ctx, update, in.Id)
 
 	if err == mongo.ErrNoDocuments {
 		reply := s.buildResponse(false, "Book not found", nil)
@@ -146,7 +168,7 @@ func (s *BookServiceServer) UpdateBook(ctx context.Context, in *pb.UpdateBookReq
 }
 
 func (s *BookServiceServer) DeleteBook(ctx context.Context, in *pb.DeleteBookRequest) (*pb.BookResponse, error) {
-	data, err := s.service.Delete(ctx, in.Id)
+	data, err := s.Service.Delete(ctx, in.Id)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return s.buildResponse(false, "Book not found", nil), nil
@@ -161,7 +183,7 @@ func (s *BookServiceServer) DeleteBook(ctx context.Context, in *pb.DeleteBookReq
 
 		retries := 0
 		for retries < 3 {
-			if _, err := s.collectionClient.DecrementAvailableBooks(backgroundCtx, &pb.DecrementAvailableBooksRequest{
+			if _, err := s.CollectionClient.DecrementAvailableBooks(backgroundCtx, &pb.DecrementAvailableBooksRequest{
 				Id:     data.CollectionId.Hex(),
 				Amount: -1,
 			}); err != nil {
@@ -188,7 +210,7 @@ func (s *BookServiceServer) GetAvailableBook(ctx context.Context, in *pb.GetAvai
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		data, err := s.service.Find(ctx, bson.M{
+		data, err := s.Service.Find(ctx, bson.M{
 			"collection_id": collectionId,
 			"is_borrowed":   false,
 		})
@@ -203,7 +225,7 @@ func (s *BookServiceServer) GetAvailableBook(ctx context.Context, in *pb.GetAvai
 		book = data
 
 		// Set cache
-		err = s.cache.SAdd(ctx, "available_books:"+in.CollectionId, book.Id, time.Hour).Err()
+		err = s.Cache.SAdd(ctx, "available_books:"+in.CollectionId, book.Id.Hex(), time.Hour).Err()
 		if err != nil {
 			log.Printf("Error setting cache: %v", err)
 		}
@@ -215,7 +237,7 @@ func (s *BookServiceServer) GetAvailableBook(ctx context.Context, in *pb.GetAvai
 
 func (s *BookServiceServer) CountBook(ctx context.Context, in *pb.CountBookRequest) (*pb.BookCountResponse, error) {
 	// Check cache first
-	if count, found := utils.GetCachedData[int64](ctx, s.cache, in.CollectionId); found {
+	if count, found := utils.GetCachedData[int64](ctx, s.Cache, in.CollectionId); found {
 		return &pb.BookCountResponse{
 			Count:   *count,
 			Success: true,
@@ -225,7 +247,7 @@ func (s *BookServiceServer) CountBook(ctx context.Context, in *pb.CountBookReque
 
 	// Compute from books
 	collectionObjId, _ := primitive.ObjectIDFromHex(in.CollectionId)
-	count, err := s.service.Count(ctx, bson.M{
+	count, err := s.Service.Count(ctx, bson.M{
 		"collection_id": collectionObjId,
 	})
 
@@ -234,7 +256,7 @@ func (s *BookServiceServer) CountBook(ctx context.Context, in *pb.CountBookReque
 	}
 
 	// Cache result
-	s.cache.Set(ctx, "available_count:"+in.CollectionId, int(count), time.Hour)
+	s.Cache.Set(ctx, "available_count:"+in.CollectionId, int(count), time.Hour)
 	return &pb.BookCountResponse{
 		Count:   count,
 		Success: true,
@@ -259,7 +281,7 @@ func (s *BookServiceServer) BulkInsert(ctx context.Context, in *pb.BulkInsertBoo
 		books[i] = *b
 	}
 
-	err := s.service.BulkInsert(ctx, books)
+	err := s.Service.BulkInsert(ctx, books)
 	if err != nil {
 		log.Printf("error bulk insert: %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -277,7 +299,7 @@ func (s *BookServiceServer) buildResponse(success bool, message string, collecti
 }
 
 func (s *BookServiceServer) getCachedAvailableBook(ctx context.Context, collectionId string) (*model.Book, bool) {
-	books, err := s.cache.SMembers(ctx, "available_books:"+collectionId).Result()
+	books, err := s.Cache.SMembers(ctx, "available_books:"+collectionId).Result()
 
 	if err != nil {
 		return nil, false
@@ -307,7 +329,7 @@ func (s *BookServiceServer) getCachedAvailableBook(ctx context.Context, collecti
 }
 
 func (s *BookServiceServer) getCachedBook(ctx context.Context, id string) (*model.Book, bool) {
-	cachedBook, success := utils.GetCachedData[model.Book](ctx, s.cache, "book:"+id)
+	cachedBook, success := utils.GetCachedData[model.Book](ctx, s.Cache, "book:"+id)
 
 	if !success {
 		return nil, false
@@ -318,7 +340,7 @@ func (s *BookServiceServer) getCachedBook(ctx context.Context, id string) (*mode
 
 func (s *BookServiceServer) invalidateCache(ctx context.Context, id string) {
 	// Invalidate cache
-	err := s.cache.Del(ctx, "book:"+id).Err()
+	err := s.Cache.Del(ctx, "book:"+id).Err()
 	if err != nil {
 		log.Printf("Error deleting cache: %v", err)
 	}
