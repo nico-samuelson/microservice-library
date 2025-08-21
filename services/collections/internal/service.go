@@ -224,7 +224,7 @@ func (s *CollectionServiceServer) DecrementAvailableBooks(ctx context.Context, i
 	if err != nil {
 		return s.buildResponse(false, err.Error(), []*pb.Collection{}), err
 	}
-	if result.(mongo.UpdateResult).ModifiedCount == 0 {
+	if result.(*mongo.UpdateResult).ModifiedCount == 0 {
 		return s.buildResponse(false, "No book updated", []*pb.Collection{}), err
 	}
 
