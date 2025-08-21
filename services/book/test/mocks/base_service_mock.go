@@ -25,7 +25,7 @@ func (m *MockService[T, U]) FindById(ctx context.Context, id string) (*T, error)
 	return nil, args.Error(1)
 }
 func (m *MockService[T, U]) Find(ctx context.Context, filter bson.M) (*T, error) {
-	log.Println(filter)
+	// log.Println(filter)
 	args := m.Called(ctx, filter)
 	if v, ok := args.Get(0).(*T); ok {
 		// log.Println(v)

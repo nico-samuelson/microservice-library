@@ -138,8 +138,8 @@ func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddC
 					Id:           primitive.NewObjectID().Hex(),
 					CollectionId: collection.Id.Hex(),
 					IsBorrowed:   &wrapperspb.BoolValue{Value: false},
-					CreatedAt:    time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
-					UpdatedAt:    time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
+					CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+					UpdatedAt:    time.Now().UTC().Format(time.RFC3339),
 				}
 				books = append(books, &book)
 			}
@@ -166,7 +166,7 @@ func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddC
 
 func (s *CollectionServiceServer) UpdateCollection(ctx context.Context, in *pb.UpdateCollectionRequest) (*pb.Response, error) {
 	update := in.Payload.AsMap()
-	update["updated_at"] = time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	update["updated_at"] = time.Now().UTC().Format(time.RFC3339)
 
 	filter := bson.M{}
 	if name, ok := update["name"]; ok {

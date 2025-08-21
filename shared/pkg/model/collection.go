@@ -69,13 +69,13 @@ func FromPbCollection(p *pb.Collection) *Collection {
 		return nil
 	}
 
-	parsedCreatedTime, err := time.Parse("2006-01-02 15:04:05 -0700 MST", p.CreatedAt)
+	parsedCreatedTime, err := time.Parse(time.RFC3339, p.CreatedAt)
 	if err != nil {
 		log.Printf("Failed to parse time: %v", err)
 		return nil
 	}
 
-	parsedUpdatedTime, err := time.Parse("2006-01-02 15:04:05 -0700 MST", p.UpdatedAt)
+	parsedUpdatedTime, err := time.Parse(time.RFC3339, p.UpdatedAt)
 	if err != nil {
 		log.Printf("Failed to parse time: %v", err)
 		return nil

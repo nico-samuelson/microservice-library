@@ -42,8 +42,8 @@ func ToPbBook(c *Book) *pb.Book {
 		Id:           c.Id.Hex(),
 		CollectionId: c.CollectionId.Hex(),
 		IsBorrowed:   wrapperspb.Bool(c.IsBorrowed),
-		CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05.000000Z"),
-		UpdatedAt:    c.UpdatedAt.Format("2006-01-02T15:04:05.000000Z"),
+		CreatedAt:    c.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    c.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -51,8 +51,6 @@ func FromPbBook(p *pb.Book) *Book {
 	if p == nil {
 		return nil
 	}
-
-	// log.Println(p.Id)
 
 	objId, err := primitive.ObjectIDFromHex(p.Id)
 	if err != nil {
@@ -66,13 +64,13 @@ func FromPbBook(p *pb.Book) *Book {
 		return nil
 	}
 
-	parsedCreatedTime, err := time.Parse("2006-01-02T15:04:05.000000Z", p.CreatedAt)
+	parsedCreatedTime, err := time.Parse(time.RFC3339, p.CreatedAt)
 	if err != nil {
 		log.Printf("Failed to parse time: %v", err)
 		return nil
 	}
 
-	parsedUpdatedTime, err := time.Parse("2006-01-02T15:04:05.000000Z", p.UpdatedAt)
+	parsedUpdatedTime, err := time.Parse(time.RFC3339, p.UpdatedAt)
 	if err != nil {
 		log.Printf("Failed to parse time: %v", err)
 		return nil

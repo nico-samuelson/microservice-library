@@ -3,7 +3,9 @@ package internal
 import (
 	"context"
 	"log"
+	interfaces "shared/pkg/interface"
 	"shared/pkg/model"
+	"shared/pkg/repository"
 	"shared/pkg/service"
 	pb "shared/proto/buffer"
 	"sync"
@@ -20,19 +22,19 @@ import (
 
 type BorrowServiceServer struct {
 	pb.UnimplementedBorrowServiceServer
-	service          *service.BaseService[model.Borrow, model.BorrowUpdateRequest]
-	cache            *redis.Client
-	collectionClient pb.CollectionServiceClient
-	bookClient       pb.BookServiceClient
+	Service          interfaces.ServiceInterface[model.Borrow, model.BorrowUpdateRequest]
+	Cache            *redis.Client
+	CollectionClient pb.CollectionServiceClient
+	BookClient       pb.BookServiceClient
 }
 
 func NewBorrowService(database *mongo.Database, collection_name string, connections map[string]*grpc.ClientConn, redis *redis.Client) *BorrowServiceServer {
-	repository := NewBorrowRepository(database, collection_name)
+	repository := repository.NewRepository[model.Borrow](database, collection_name)
 	return &BorrowServiceServer{
-		service:          service.NewBaseService[model.Borrow, model.BorrowUpdateRequest](&repository.Repository),
-		cache:            redis,
-		collectionClient: pb.NewCollectionServiceClient(connections["collection"]),
-		bookClient:       pb.NewBookServiceClient(connections["book"]),
+		Service:          service.NewBaseService[model.Borrow, model.BorrowUpdateRequest](repository),
+		Cache:            redis,
+		CollectionClient: pb.NewCollectionServiceClient(connections["collection"]),
+		BookClient:       pb.NewBookServiceClient(connections["book"]),
 	}
 }
 
@@ -59,34 +61,36 @@ func (s *BorrowServiceServer) ReturnBook(ctx context.Context, in *pb.ReturnReque
 	now := time.Now().UTC()
 
 	// Check if book already returned
-	borrow_record, err := s.service.FindById(ctx, in.BorrowId)
+	borrowRecord, err := s.Service.FindById(ctx, in.BorrowId)
 	if err == mongo.ErrNoDocuments {
 		log.Printf("error checking book status when returning: %v", err)
 		return nil, status.Error(codes.NotFound, "Borrow record not found")
-	} else if borrow_record.ReturnDate != nil && !borrow_record.ReturnDate.IsZero() {
-		log.Printf("book already returned: %v", borrow_record)
-		return nil, status.Error(codes.FailedPrecondition, "Book already returned")
+	} else if borrowRecord != nil {
+		if borrowRecord.ReturnDate != nil && !borrowRecord.ReturnDate.IsZero() {
+			log.Printf("Borrow already returned: %v", borrowRecord.Id.Hex())
+			return nil, status.Error(codes.FailedPrecondition, "Book already returned")
+		}
 	}
 
-	if err := s.markBookBorrowedStatus(ctx, borrow_record.BookId.Hex(), false, now); err != nil {
+	if err := s.markBookBorrowedStatus(ctx, borrowRecord.BookId.Hex(), false, now); err != nil {
 		return nil, status.Errorf(codes.Aborted, "failed to mark book as returned: %v", err)
 	}
 
 	// Update borrow record
-	borrow, err := s.service.Update(ctx, map[string]interface{}{
-		"return_date": now.Format("2006-01-02T15:04:05.000000Z"),
-		"updated_at":  now.Format("2006-01-02T15:04:05.000000Z"),
+	_, err = s.Service.Update(ctx, map[string]interface{}{
+		"return_date": now.Format(time.RFC3339),
+		"updated_at":  now.Format(time.RFC3339),
 	}, in.BorrowId)
 
 	if err != nil {
-		s.markBookBorrowedStatus(ctx, borrow.BookId.Hex(), true, now)
+		s.markBookBorrowedStatus(ctx, borrowRecord.BookId.Hex(), true, now)
 		return nil, status.Errorf(codes.Internal, "failed to update borrow record: %v", err)
 	}
 
 	// Update cache
-	s.updateCache(ctx, borrow.BookId.Hex(), borrow.CollectionId.Hex(), "put")
+	s.updateCache(ctx, borrowRecord.BookId.Hex(), borrowRecord.CollectionId.Hex(), "put")
 
-	return s.buildResponse(true, "Book returned successfully", borrow.Id.Hex(), borrow.BookId.Hex()), nil
+	return s.buildResponse(true, "Book returned successfully", borrowRecord.Id.Hex(), borrowRecord.BookId.Hex()), nil
 }
 
 func (s *BorrowServiceServer) fetchBookAndCollection(ctx context.Context, collectionId string) (*model.Book, error) {
@@ -128,7 +132,7 @@ func (s *BorrowServiceServer) fetchBookAndCollection(ctx context.Context, collec
 }
 
 func (s *BorrowServiceServer) getCollection(ctx context.Context, collectionId string) (*model.Collection, error) {
-	response, err := s.collectionClient.FindCollectionById(ctx, &pb.FindCollectionRequest{Id: collectionId})
+	response, err := s.CollectionClient.FindCollectionById(ctx, &pb.FindCollectionRequest{Id: collectionId})
 	if status.Code(err) == codes.NotFound {
 		return nil, status.Error(codes.NotFound, "Collection not found")
 	}
@@ -147,13 +151,14 @@ func (s *BorrowServiceServer) getCollection(ctx context.Context, collectionId st
 
 func (s *BorrowServiceServer) getBook(ctx context.Context, collectionId string) (*model.Book, error) {
 	// Try to get an available book first
-	bookResponse, err := s.bookClient.GetAvailableBook(ctx, &pb.GetAvailableBookRequest{CollectionId: collectionId})
+	bookResponse, err := s.BookClient.GetAvailableBook(ctx, &pb.GetAvailableBookRequest{CollectionId: collectionId})
 	if err != nil {
 		return nil, err
 	}
 
 	books := model.FromPbBooks(bookResponse.Book)
 	if len(books) > 0 {
+		// Reserve book so it doesn't get picked up by another concurrent request
 		s.updateCache(ctx, books[0].Id.Hex(), collectionId, "remove")
 		return books[0], nil
 	}
@@ -189,9 +194,10 @@ func (s *BorrowServiceServer) createBorrowWithCompensation(ctx context.Context, 
 		UpdatedAt:    now,
 	}
 
-	if err := s.service.Create(ctx, *newBorrow); err != nil {
+	if err := s.Service.Create(ctx, *newBorrow); err != nil {
 		// Mark book as not borrowed on failure
 		s.markBookBorrowedStatus(ctx, book.Id.Hex(), false, now)
+		s.updateCache(ctx, book.Id.Hex(), collectionId, "put")
 		return nil, status.Errorf(codes.Internal, "failed to create borrow record: %v", err)
 	}
 
@@ -199,7 +205,7 @@ func (s *BorrowServiceServer) createBorrowWithCompensation(ctx context.Context, 
 }
 
 func (s *BorrowServiceServer) markBookBorrowedStatus(ctx context.Context, bookId string, borrowed bool, timestamp time.Time) error {
-	_, err := s.bookClient.UpdateBook(ctx, &pb.UpdateBookRequest{
+	_, err := s.BookClient.UpdateBook(ctx, &pb.UpdateBookRequest{
 		Id: bookId,
 		Payload: &structpb.Struct{
 			Fields: map[string]*structpb.Value{
@@ -227,29 +233,29 @@ func (s *BorrowServiceServer) updateCache(ctx context.Context, bookId string, co
 	cacheKey := "available_books:" + collectionId
 
 	// Check key existence
-	existInCache, err := s.cache.Exists(ctx, cacheKey).Result()
+	existInCache, err := s.Cache.Exists(ctx, cacheKey).Result()
 	if err != nil {
 		log.Printf("Error checking key existence: %v", err)
-		s.cache.Del(ctx, cacheKey)
+		s.Cache.Del(ctx, cacheKey)
 	}
 
 	if existInCache > 0 {
 		switch action {
 		case "put":
-			err = s.cache.SAdd(ctx, cacheKey, bookId, time.Hour).Err()
+			err = s.Cache.SAdd(ctx, cacheKey, bookId, time.Hour).Err()
 			if err != nil {
-				s.cache.Del(ctx, cacheKey)
+				s.Cache.Del(ctx, cacheKey)
 			}
 		case "remove":
-			err := s.cache.SRem(ctx, cacheKey, bookId).Err()
+			err := s.Cache.SRem(ctx, cacheKey, bookId).Err()
 			if err != nil {
-				s.cache.Del(ctx, cacheKey)
+				s.Cache.Del(ctx, cacheKey)
 			}
 		}
 	} else if action == "put" {
-		err = s.cache.SAdd(ctx, cacheKey, bookId, time.Hour).Err()
+		err = s.Cache.SAdd(ctx, cacheKey, bookId, time.Hour).Err()
 		if err != nil {
-			s.cache.Del(ctx, cacheKey)
+			s.Cache.Del(ctx, cacheKey)
 		}
 	}
 }

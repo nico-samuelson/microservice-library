@@ -104,7 +104,7 @@ func (s *BookServiceServer) FindBookById(ctx context.Context, in *pb.FindBookReq
 }
 
 func (s *BookServiceServer) AddBook(ctx context.Context, in *pb.AddBookRequest) (*pb.BookResponse, error) {
-	currTime := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	currTime := time.Now().UTC().Format(time.RFC3339)
 	in.Book.Id = primitive.NewObjectID().Hex()
 	in.Book.CreatedAt = currTime
 	in.Book.UpdatedAt = currTime
@@ -138,7 +138,7 @@ func (s *BookServiceServer) AddBook(ctx context.Context, in *pb.AddBookRequest) 
 
 func (s *BookServiceServer) UpdateBook(ctx context.Context, in *pb.UpdateBookRequest) (*pb.BookResponse, error) {
 	update := in.Payload.AsMap()
-	update["updated_at"] = time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	update["updated_at"] = time.Now().UTC().Format(time.RFC3339)
 
 	if collectionId, ok := update["collection_id"]; ok {
 		collectionId, err := primitive.ObjectIDFromHex(collectionId.(string))
@@ -267,7 +267,7 @@ func (s *BookServiceServer) CountBook(ctx context.Context, in *pb.CountBookReque
 func (s *BookServiceServer) BulkInsert(ctx context.Context, in *pb.BulkInsertBookRequest) (*pb.BookResponse, error) {
 	// log.Println(in.Books[0])
 	// for _, book := range in.Books {
-	// 	currTime := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	// 	currTime := time.Now().UTC().Format(time.RFC3339)
 	// 	book.Id = primitive.NewObjectID().Hex()
 	// 	book.CreatedAt = currTime
 	// 	book.UpdatedAt = currTime

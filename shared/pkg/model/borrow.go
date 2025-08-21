@@ -36,7 +36,7 @@ func ToPbBorrow(c *Borrow) *pb.Borrow {
 
 	var returnDate string
 	if c.ReturnDate != nil {
-		returnDate = c.ReturnDate.Format("2006-01-02T15:04:05.000000Z")
+		returnDate = c.ReturnDate.Format(time.RFC3339)
 	}
 
 	return &pb.Borrow{
@@ -44,11 +44,11 @@ func ToPbBorrow(c *Borrow) *pb.Borrow {
 		BookId:       c.BookId.Hex(),
 		UserId:       c.UserId.Hex(),
 		CollectionId: c.CollectionId.Hex(),
-		BorrowDate:   c.BorrowDate.Format("2006-01-02T15:04:05.000000Z"),
-		DueDate:      c.DueDate.Format("2006-01-02T15:04:05.000000Z"),
+		BorrowDate:   c.BorrowDate.Format(time.RFC3339),
+		DueDate:      c.DueDate.Format(time.RFC3339),
 		ReturnDate:   returnDate,
-		CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05.000000Z"),
-		UpdatedAt:    c.UpdatedAt.Format("2006-01-02T15:04:05.000000Z"),
+		CreatedAt:    c.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    c.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -56,6 +56,8 @@ func FromPbBorrow(p *pb.Borrow) *Borrow {
 	if p == nil {
 		return nil
 	}
+
+	// log.Println(p)
 
 	objId, err := primitive.ObjectIDFromHex(p.Id)
 	if err != nil {
@@ -67,13 +69,13 @@ func FromPbBorrow(p *pb.Borrow) *Borrow {
 	userId, _ := primitive.ObjectIDFromHex(p.UserId)
 	collectionId, _ := primitive.ObjectIDFromHex(p.CollectionId)
 
-	borrowDate, err := time.Parse("2006-01-02T15:04:05.000000Z", p.BorrowDate)
+	borrowDate, err := time.Parse(time.RFC3339, p.BorrowDate)
 	if err != nil {
 		log.Printf("Failed to parse borrow date: %v", err)
 		return nil
 	}
 
-	dueDate, err := time.Parse("2006-01-02T15:04:05.000000Z", p.DueDate)
+	dueDate, err := time.Parse(time.RFC3339, p.DueDate)
 	if err != nil {
 		log.Printf("Failed to parse due date: %v", err)
 		return nil
@@ -81,16 +83,16 @@ func FromPbBorrow(p *pb.Borrow) *Borrow {
 
 	var returnDate time.Time
 	if p.ReturnDate != "" {
-		returnDate, _ = time.Parse("2006-01-02T15:04:05.000000Z", p.ReturnDate)
+		returnDate, _ = time.Parse(time.RFC3339, p.ReturnDate)
 	}
 
-	createdAt, err := time.Parse("2006-01-02T15:04:05.000000Z", p.CreatedAt)
+	createdAt, err := time.Parse(time.RFC3339, p.CreatedAt)
 	if err != nil {
 		log.Printf("Failed to parse created at date: %v", err)
 		return nil
 	}
 
-	updatedAt, err := time.Parse("2006-01-02T15:04:05.000000Z", p.UpdatedAt)
+	updatedAt, err := time.Parse(time.RFC3339, p.UpdatedAt)
 	if err != nil {
 		log.Printf("Failed to parse updated at date: %v", err)
 		return nil
