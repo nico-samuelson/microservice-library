@@ -87,19 +87,21 @@ func BuildFilterAndSort(params QueryParams) (*structpb.Struct, []*pb.Sort) {
 		log.Printf("Error parsing filter params: %v", err)
 		return nil, nil
 	}
-
+	
 	var sorts []*pb.Sort
-	for _, sort := range *params.Sort {
-		direction, ok := sort.Value.(int)
-		if !ok {
-			log.Printf("Can't convert element to int: %v", direction)
-			return filter, nil
-		}
+	if params.Sort != nil {
+		for _, sort := range *params.Sort {
+			direction, ok := sort.Value.(int)
+			if !ok {
+				log.Printf("Can't convert element to int: %v", direction)
+				return filter, nil
+			}
 
-		sorts = append(sorts, &pb.Sort{
-			Key:       sort.Key,
-			Direction: int32(direction),
-		})
+			sorts = append(sorts, &pb.Sort{
+				Key:       sort.Key,
+				Direction: int32(direction),
+			})
+		}
 	}
 
 	return filter, sorts
