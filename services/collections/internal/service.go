@@ -107,7 +107,7 @@ func (s *CollectionServiceServer) FindCollectionById(ctx context.Context, in *pb
 }
 
 func (s *CollectionServiceServer) AddCollection(ctx context.Context, in *pb.AddCollectionRequest) (*pb.Response, error) {
-	currTime := time.Now().UTC().String()
+	currTime := time.Now().UTC().Format(time.RFC3339)
 	in.Collection.Id = primitive.NewObjectID().Hex()
 	in.Collection.CreatedAt = currTime
 	in.Collection.UpdatedAt = currTime

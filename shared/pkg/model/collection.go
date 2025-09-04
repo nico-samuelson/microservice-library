@@ -53,8 +53,8 @@ func ToPbCollection(c *Collection) *pb.Collection {
 		Categories:     c.Categories,
 		TotalBooks:     int32(c.TotalBooks),
 		AvailableBooks: int32(c.AvailableBooks),
-		CreatedAt:      c.CreatedAt.UTC().String(),
-		UpdatedAt:      c.UpdatedAt.UTC().String(),
+		CreatedAt:      c.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      c.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
